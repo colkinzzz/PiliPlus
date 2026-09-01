@@ -136,7 +136,9 @@ void main() async {
 
   SmartDialog.config.toast = SmartConfigToast(displayType: .onlyRefresh);
 
-  if (PlatformUtils.isMobile && !(Platform.isAndroid && Pref.carMode)) {
+  // Keep transparent system bars edge-to-edge so the app theme can paint into
+  // the vehicle status-bar area. Car SafeArea below still protects controls.
+  if (PlatformUtils.isMobile) {
     SystemChrome.setEnabledSystemUIMode(.edgeToEdge);
   }
   if (PlatformUtils.isMobile) {
@@ -330,12 +332,15 @@ class MyApp extends StatelessWidget {
       );
     }
     if (Platform.isAndroid && Pref.carMode) {
-      child = SafeArea(
-        minimum: EdgeInsets.only(
-          top: Pref.carTopSafePadding,
-          bottom: Pref.carBottomSafePadding,
+      child = ColoredBox(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        child: SafeArea(
+          minimum: EdgeInsets.only(
+            top: Pref.carTopSafePadding,
+            bottom: Pref.carBottomSafePadding,
+          ),
+          child: child,
         ),
-        child: child,
       );
     }
     if (PlatformUtils.isDesktop) {
