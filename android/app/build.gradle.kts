@@ -55,7 +55,7 @@ android {
     }
 
     buildFeatures {
-        if (project.hasProperty("dev")) {
+        if (project.hasProperty("dev") || project.hasProperty("car")) {
             resValues = true
         }
     }
@@ -65,7 +65,14 @@ android {
             signingConfig = config ?: signingConfigs["debug"]
         }
         release {
-            if (project.hasProperty("dev")) {
+            if (project.hasProperty("car")) {
+                applicationIdSuffix = ".car"
+                resValue(
+                    type = "string",
+                    name = "app_name",
+                    value = "PiliPlus Car",
+                )
+            } else if (project.hasProperty("dev")) {
                 applicationIdSuffix = ".dev"
                 resValue(
                     type = "string",
@@ -100,3 +107,4 @@ kotlin {
 flutter {
     source = "../.."
 }
+

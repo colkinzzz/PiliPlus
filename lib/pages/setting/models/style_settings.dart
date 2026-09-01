@@ -76,6 +76,37 @@ List<SettingsModel> get styleSettings => [
       }
     },
   ),
+  if (Platform.isAndroid) ...[
+    const SwitchModel(
+      title: '车机窗口模式',
+      subtitle: '应用内全屏只铺满当前分屏窗口，不改变车机全屏、系统栏或横竖屏；重启后生效',
+      leading: Icon(Icons.directions_car_filled_outlined),
+      setKey: SettingBoxKey.carMode,
+      defaultVal: bool.fromEnvironment(
+        'PILIPLUS_CAR',
+        defaultValue: false,
+      ),
+      needReboot: true,
+    ),
+    getVideoFilterSelectModel(
+      title: '车机最低顶部安全边距',
+      subtitle: '系统状态栏仍遮挡或无法点击时调大，通常保持 0（自动识别）',
+      suffix: 'dp',
+      key: SettingBoxKey.carTopSafePadding,
+      values: const [0, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80],
+      defaultValue: 0,
+      isFilter: false,
+    ),
+    getVideoFilterSelectModel(
+      title: '车机最低底部安全边距',
+      subtitle: '空调控制条仍遮挡或无法点击时调大，通常保持 0（自动识别）',
+      suffix: 'dp',
+      key: SettingBoxKey.carBottomSafePadding,
+      values: const [0, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80],
+      defaultValue: 0,
+      isFilter: false,
+    ),
+  ],
   const SwitchModel(
     title: '改用侧边栏',
     subtitle: '开启后底栏与顶栏被替换，且相关设置失效',
@@ -836,3 +867,4 @@ NormalModel _useSSDModel() {
     ),
   );
 }
+
