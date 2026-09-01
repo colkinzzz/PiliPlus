@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:PiliPlus/utils/device_utils.dart';
+import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:flutter/services.dart'
     show SystemChrome, MethodChannel, SystemUiOverlay, DeviceOrientation;
 
@@ -33,6 +34,12 @@ Future<void> exitDesktopFullScreen() async {
 
 List<DeviceOrientation>? _lastOrientation;
 Future<void>? _setPreferredOrientations(List<DeviceOrientation> orientations) {
+  // Changing the requested orientation can promote an Android split-screen
+  // activity to the vehicle's full display. In car mode the host owns the
+  // window; player fullscreen only changes PiliPlus' in-window layout.
+  if (Platform.isAndroid && Pref.carMode) {
+    return null;
+  }
   if (_lastOrientation == orientations) {
     return null;
   }
@@ -65,6 +72,10 @@ Future<void>? fullMode() {
 bool _showSystemBar = true;
 bool get showSystemBar_ => _showSystemBar;
 Future<void>? hideSystemBar() {
+  // Do not hide vehicle status/HVAC bars or alter the host window state.
+  if (Platform.isAndroid && Pref.carMode) {
+    return null;
+  }
   if (!_showSystemBar) {
     return null;
   }
@@ -74,6 +85,10 @@ Future<void>? hideSystemBar() {
 
 //退出全屏显示
 Future<void>? showSystemBar() {
+  // The vehicle shell, not the player, controls these overlays in car mode.
+  if (Platform.isAndroid && Pref.carMode) {
+    return null;
+  }
   if (_showSystemBar) {
     return null;
   }
@@ -83,3 +98,4 @@ Future<void>? showSystemBar() {
     overlays: SystemUiOverlay.values,
   );
 }
+

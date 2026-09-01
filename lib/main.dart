@@ -136,8 +136,10 @@ void main() async {
 
   SmartDialog.config.toast = SmartConfigToast(displayType: .onlyRefresh);
 
-  if (PlatformUtils.isMobile) {
+  if (PlatformUtils.isMobile && !(Platform.isAndroid && Pref.carMode)) {
     SystemChrome.setEnabledSystemUIMode(.edgeToEdge);
+  }
+  if (PlatformUtils.isMobile) {
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
         systemNavigationBarColor: Colors.transparent,
@@ -327,6 +329,15 @@ class MyApp extends StatelessWidget {
         child: child!,
       );
     }
+    if (Platform.isAndroid && Pref.carMode) {
+      child = SafeArea(
+        minimum: EdgeInsets.only(
+          top: Pref.carTopSafePadding,
+          bottom: Pref.carBottomSafePadding,
+        ),
+        child: child,
+      );
+    }
     if (PlatformUtils.isDesktop) {
       return BackDetector(
         onBack: _onBack,
@@ -398,3 +409,4 @@ class _CustomHttpOverrides extends HttpOverrides {
     return client;
   }
 }
+

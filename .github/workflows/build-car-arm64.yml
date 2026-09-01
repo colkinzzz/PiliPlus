@@ -1,0 +1,73 @@
+name: Build Car Android arm64-v8a
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/car-window-adaptation
+    paths-ignore:
+      - "**.md"
+
+permissions:
+  contents: read
+
+jobs:
+  android-arm64:
+    name: Android arm64-v8a
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: zulu
+          java-version: "17"
+          cache: gradle
+          cache-dependency-path: |
+            android/*.gradle*
+            android/**/gradle-wrapper.properties
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version-file: pubspec.yaml
+          cache: true
+
+      - name: Apply upstream patches
+        shell: pwsh
+        run: lib/scripts/patch.ps1 android
+
+      - name: Set build version
+        shell: pwsh
+        run: lib/scripts/build.ps1 android
+
+      - name: Build car arm64-v8a APK
+        run: >-
+          flutter build apk --release --split-per-abi
+          --target-platform android-arm64
+          --dart-define=PILIPLUS_CAR=true
+          --dart-define-from-file=pili_release.json
+          --android-project-arg car=1
+          --no-pub
+
+      - name: Rename APK
+        shell: bash
+        run: |
+          apk=$(find build/app/outputs/flutter-apk -maxdepth 1 -name '*arm64-v8a*release.apk' -print -quit)
+          test -n "$apk"
+          cp "$apk" "PiliPlus_Car_${{ env.version }}_arm64-v8a.apk"
+
+      - name: Upload arm64-v8a APK
+        uses: actions/upload-artifact@v7
+        with:
+          archive: false
+          name: PiliPlus-Car-arm64-v8a
+          path: PiliPlus_Car_*_arm64-v8a.apk
+          if-no-files-found: error
+

@@ -153,6 +153,9 @@ abstract final class SettingBoxKey {
       touchSlopH = 'touchSlopH',
       floatingNavBar = 'floatingNavBar',
       removeSafeArea = 'removeSafeArea',
+      carMode = 'carMode',
+      carTopSafePadding = 'carTopSafePadding',
+      carBottomSafePadding = 'carBottomSafePadding',
       angleDegrees = 'angleDegrees',
       liveStream = 'liveStream',
       enableDocProvider = 'enableDocProvider';
@@ -257,3 +260,4 @@ abstract final class VideoBoxKey {
       speedsList = 'speedsList',
       cacheVideoFit = 'cacheVideoFit';
 }
+

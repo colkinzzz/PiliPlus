@@ -1031,6 +1031,24 @@ abstract final class Pref {
   static bool get removeSafeArea =>
       _setting.get(SettingBoxKey.removeSafeArea, defaultValue: false);
 
+  /// Keeps fullscreen inside the current Android app window. The dedicated
+  /// car build enables this by default, while ordinary builds stay unchanged.
+  static bool get carMode => _setting.get(
+    SettingBoxKey.carMode,
+    defaultValue: const bool.fromEnvironment(
+      'PILIPLUS_CAR',
+      defaultValue: false,
+    ),
+  );
+
+  static double get carTopSafePadding =>
+      (_setting.get(SettingBoxKey.carTopSafePadding, defaultValue: 0) as num)
+          .toDouble();
+
+  static double get carBottomSafePadding =>
+      (_setting.get(SettingBoxKey.carBottomSafePadding, defaultValue: 0) as num)
+          .toDouble();
+
   static int get angleDegrees =>
       _setting.get(SettingBoxKey.angleDegrees, defaultValue: 30);
 
@@ -1045,3 +1063,4 @@ abstract final class Pref {
   static bool get enableDocProvider =>
       _setting.get(SettingBoxKey.enableDocProvider, defaultValue: false);
 }
+
