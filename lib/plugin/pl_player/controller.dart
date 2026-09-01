@@ -35,6 +35,7 @@ import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/android/android_helper.dart';
 import 'package:PiliPlus/utils/android/bindings.g.dart';
 import 'package:PiliPlus/utils/asset_utils.dart';
+import 'package:PiliPlus/utils/car_window_service.dart';
 import 'package:PiliPlus/utils/device_utils.dart';
 import 'package:PiliPlus/utils/duration_utils.dart';
 import 'package:PiliPlus/utils/extension/box_ext.dart';
@@ -52,7 +53,13 @@ import 'package:archive/archive.dart' show getCrc32;
 import 'package:canvas_danmaku/canvas_danmaku.dart';
 import 'package:easy_debounce/easy_throttle.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
-import 'package:flutter/services.dart' show HapticFeedback, DeviceOrientation;
+import 'package:flutter/services.dart'
+    show
+        HapticFeedback,
+        DeviceOrientation,
+        SystemChrome,
+        SystemUiMode,
+        SystemUiOverlay;
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:flutter_volume_controller/flutter_volume_controller.dart';
 import 'package:get/get.dart';
@@ -120,6 +127,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   final RxBool controlsLock = false.obs;
 
   final RxBool isFullScreen = false.obs;
+  // Until native bounds are known, prefer the safe split-window behavior.
+  final RxBool carWindowed = true.obs;
   bool isLive = false;
 
   bool _isVertical = false;
@@ -1365,6 +1374,24 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   // 全屏
   bool _fsProcessing = false;
+  bool? _carFullScreenTarget;
+
+  Future<void> syncCarWindowState({bool? fullScreen}) async {
+    if (!Platform.isAndroid || !Pref.carMode) return;
+    final state = await CarWindowService.getWindowState();
+    final hostFullScreen = state.supported && state.isHostFullScreen;
+    carWindowed.value = !hostFullScreen;
+    if ((fullScreen ?? _carFullScreenTarget ?? isFullScreen.value) &&
+        hostFullScreen) {
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    } else {
+      await SystemChrome.setEnabledSystemUIMode(
+        SystemUiMode.edgeToEdge,
+        overlays: SystemUiOverlay.values,
+      );
+    }
+  }
+
   Future<void> triggerFullScreen({
     bool status = true,
     bool inAppFullScreen = false,
@@ -1377,32 +1404,44 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     if (_fsProcessing) return;
     _fsProcessing = true;
     this.isManualFS = isManualFS;
+    if (Platform.isAndroid && Pref.carMode) {
+      _carFullScreenTarget = status;
+    }
     try {
       if (status) {
         if (PlatformUtils.isMobile) {
-          hideSystemBar();
-          await changeOrientation(
-            isVertical: isVertical,
-            orientation: orientation,
-          );
+          if (Platform.isAndroid && Pref.carMode) {
+            await syncCarWindowState(fullScreen: true);
+          } else {
+            hideSystemBar();
+            await changeOrientation(
+              isVertical: isVertical,
+              orientation: orientation,
+            );
+          }
         } else {
           await enterDesktopFullScreen(inAppFullScreen: inAppFullScreen);
         }
       } else {
         if (PlatformUtils.isMobile) {
-          if (!removeSafeArea) {
-            showSystemBar();
+          if (Platform.isAndroid && Pref.carMode) {
+            await syncCarWindowState(fullScreen: false);
+          } else {
+            if (!removeSafeArea) {
+              showSystemBar();
+            }
+            if (orientation == null && mode == .none) {
+              return;
+            }
+            await resetScreenRotation();
           }
-          if (orientation == null && mode == .none) {
-            return;
-          }
-          await resetScreenRotation();
         } else {
           await exitDesktopFullScreen();
         }
       }
     } finally {
       _setFullScreen(status);
+      _carFullScreenTarget = null;
       _fsProcessing = false;
     }
   }
