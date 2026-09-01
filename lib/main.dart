@@ -309,37 +309,47 @@ class MyApp extends StatelessWidget {
     final uiScale = Pref.uiScale;
     final mediaQuery = MediaQuery.of(context);
     final textScaler = TextScaler.linear(Pref.defaultTextScale);
+    final isCarMode = Platform.isAndroid && Pref.carMode;
+    late MediaQueryData effectiveMediaQuery;
     if (uiScale != 1.0) {
-      child = MediaQuery(
-        data: mediaQuery.copyWith(
-          textScaler: textScaler,
-          size: mediaQuery.size / uiScale,
-          padding: tmpPadding ?? mediaQuery.padding / uiScale,
-          viewInsets: mediaQuery.viewInsets / uiScale,
-          viewPadding: tmpPadding ?? mediaQuery.viewPadding / uiScale,
-          devicePixelRatio: mediaQuery.devicePixelRatio * uiScale,
-        ),
-        child: child!,
+      effectiveMediaQuery = mediaQuery.copyWith(
+        textScaler: textScaler,
+        size: mediaQuery.size / uiScale,
+        padding: tmpPadding ?? mediaQuery.padding / uiScale,
+        viewInsets: mediaQuery.viewInsets / uiScale,
+        viewPadding: tmpPadding ?? mediaQuery.viewPadding / uiScale,
+        devicePixelRatio: mediaQuery.devicePixelRatio * uiScale,
       );
     } else {
-      child = MediaQuery(
-        data: mediaQuery.copyWith(
-          textScaler: textScaler,
-          padding: tmpPadding,
-          viewPadding: tmpPadding,
-        ),
-        child: child!,
+      effectiveMediaQuery = mediaQuery.copyWith(
+        textScaler: textScaler,
+        padding: tmpPadding,
+        viewPadding: tmpPadding,
       );
     }
-    if (Platform.isAndroid && Pref.carMode) {
+
+    if (isCarMode) {
+      // This launcher already lays the Activity out below its status strip.
+      // Passing the same top inset to MainApp creates a second blank row.
+      effectiveMediaQuery = effectiveMediaQuery.copyWith(
+        padding: effectiveMediaQuery.padding.copyWith(top: 0),
+        viewPadding: effectiveMediaQuery.viewPadding.copyWith(top: 0),
+      );
+    }
+    child = MediaQuery(data: effectiveMediaQuery, child: child!);
+
+    if (isCarMode) {
       child = ColoredBox(
         color: Theme.of(context).scaffoldBackgroundColor,
         child: SafeArea(
+          top: false,
           minimum: EdgeInsets.only(
-            top: Pref.carTopSafePadding,
             bottom: Pref.carBottomSafePadding,
           ),
-          child: child,
+          child: Padding(
+            padding: EdgeInsets.only(top: Pref.carTopSafePadding),
+            child: child,
+          ),
         ),
       );
     }
@@ -414,4 +424,3 @@ class _CustomHttpOverrides extends HttpOverrides {
     return client;
   }
 }
-

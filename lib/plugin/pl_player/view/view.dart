@@ -63,6 +63,7 @@ import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
+import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:canvas_danmaku/canvas_danmaku.dart';
 import 'package:collection/collection.dart';
@@ -343,6 +344,13 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
         }
       }
     }
+  }
+
+  @override
+  void didChangeMetrics() {
+    // The driver can move the app between the 2/3 pane and the full host area
+    // without Android reporting standard multi-window mode.
+    plPlayerController.syncCarWindowState();
   }
 
   Future<void> setBrightness(double value) async {
@@ -2034,16 +2042,22 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
             child: Obx(
               () {
                 final videoFit = plPlayerController.videoFit.value;
+                final forceContain = Platform.isAndroid &&
+                    Pref.carMode &&
+                    plPlayerController.isFullScreen.value &&
+                    plPlayerController.carWindowed.value;
+                final effectiveFit =
+                    forceContain ? VideoFitType.contain : videoFit;
                 return Transform.flip(
                   flipX: plPlayerController.flipX.value,
                   flipY: plPlayerController.flipY.value,
                   child: FittedBox(
-                    fit: videoFit.boxFit,
+                    fit: effectiveFit.boxFit,
                     alignment: widget.alignment,
                     child: SimpleVideo(
                       controller: plPlayerController.videoController!,
                       fill: widget.fill,
-                      aspectRatio: videoFit.aspectRatio,
+                      aspectRatio: effectiveFit.aspectRatio,
                     ),
                   ),
                 );
