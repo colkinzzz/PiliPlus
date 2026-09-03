@@ -852,7 +852,9 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
   Widget childWhenDisabledLandscapeInner(bool isFullScreen) {
     if (enableVerticalExpand) {
       return Obx(() {
-        if (videoDetailController.isVertical.value && !isPortrait) {
+        if (videoDetailController.isVertical.value &&
+            !isPortrait &&
+            !(Platform.isAndroid && Pref.carMode && !isFullScreen)) {
           final double videoHeight = maxHeight - padding.vertical;
           final double width = videoHeight / Style.aspectRatio16x9;
           final videoWidth = isFullScreen ? maxWidth : width;
@@ -921,6 +923,21 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     if (maxWidth >= 560) {
       width = maxWidth - clampDouble(maxWidth - width, 280, 425);
     }
+    final showIntro =
+        videoDetailController.isUgc && videoDetailController.showRelatedVideo;
+    final showSeasonPanel = _shouldShowSeasonPanel;
+    final useCarDetailsLayout =
+        Platform.isAndroid && Pref.carMode && !isFullScreen;
+    final moveReplyToLeft = useCarDetailsLayout &&
+        !videoDetailController.isFileSource &&
+        videoDetailController.showReply;
+    final hasRightPanelContent =
+        videoDetailController.isFileSource || showIntro || showSeasonPanel;
+    final collapseEmptyRightPanel =
+        useCarDetailsLayout && !hasRightPanelContent;
+    if (collapseEmptyRightPanel) {
+      width = maxWidth - padding.horizontal;
+    }
     final videoWidth = isFullScreen ? maxWidth : width;
     final double height = width / Style.aspectRatio16x9;
     final videoHeight = isFullScreen
@@ -930,13 +947,6 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
       return childSplit(Style.aspectRatio16x9);
     }
     final introHeight = maxHeight - height - padding.top;
-    final showIntro =
-        videoDetailController.isUgc && videoDetailController.showRelatedVideo;
-    // 右栏仍展示相关视频/播放列表时，评论移到左列简介下方；右栏无内容可展示时维持原状
-    final moveReplyToLeft = Platform.isAndroid &&
-        Pref.carMode &&
-        videoDetailController.showReply &&
-        (showIntro || _shouldShowSeasonPanel);
     final content = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -969,54 +979,57 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
               ),
           ],
         ),
-        Offstage(
-          offstage: isFullScreen,
-          child: SizedBox(
-            width: maxWidth - width - padding.horizontal,
-            height: maxHeight - padding.top,
-            child: MiniScaffold(
-              key: videoDetailController.childKey,
-              body: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  buildTabBar(
-                    introText: '相关视频',
-                    showIntro: videoDetailController.isFileSource
-                        ? true
-                        : showIntro,
-                    showReply: !moveReplyToLeft,
-                  ),
-                  Expanded(
-                    child: tabBarView(
-                      controller: videoDetailController.tabCtr,
-                      children: [
-                        if (videoDetailController.isFileSource)
-                          localIntroPanel()
-                        else if (showIntro)
-                          KeepAliveWrapper(
-                            child: CustomScrollView(
-                              key: const PageStorageKey(CommonIntroController),
-                              controller:
-                                  videoDetailController.effectiveIntroScrollCtr,
-                              slivers: [
-                                RelatedVideoPanel(
-                                  key: videoRelatedKey,
-                                  heroTag: heroTag,
-                                ),
-                              ],
-                            ),
-                          ),
-                        if (videoDetailController.showReply && !moveReplyToLeft)
-                          videoReplyPanel(),
-                        if (_shouldShowSeasonPanel) seasonPanel,
-                      ],
+        if (!collapseEmptyRightPanel)
+          Offstage(
+            offstage: isFullScreen,
+            child: SizedBox(
+              width: maxWidth - width - padding.horizontal,
+              height: maxHeight - padding.top,
+              child: MiniScaffold(
+                key: videoDetailController.childKey,
+                body: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    buildTabBar(
+                      introText: '相关视频',
+                      showIntro: videoDetailController.isFileSource
+                          ? true
+                          : showIntro,
+                      showReply: !moveReplyToLeft,
                     ),
-                  ),
-                ],
+                    Expanded(
+                      child: tabBarView(
+                        controller: videoDetailController.tabCtr,
+                        children: [
+                          if (videoDetailController.isFileSource)
+                            localIntroPanel()
+                          else if (showIntro)
+                            KeepAliveWrapper(
+                              child: CustomScrollView(
+                                key:
+                                    const PageStorageKey(CommonIntroController),
+                                controller: videoDetailController
+                                    .effectiveIntroScrollCtr,
+                                slivers: [
+                                  RelatedVideoPanel(
+                                    key: videoRelatedKey,
+                                    heroTag: heroTag,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          if (videoDetailController.showReply &&
+                              !moveReplyToLeft)
+                            videoReplyPanel(),
+                          if (showSeasonPanel) seasonPanel,
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
-        ),
       ],
     );
     // Replies moved to the left column still need a full-size MiniScaffold

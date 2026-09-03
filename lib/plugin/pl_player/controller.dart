@@ -1389,8 +1389,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     final hostFullScreen = state.supported &&
         state.hostWindowState == 'full';
     carWindowed.value = !hostFullScreen;
-    if ((fullScreen ?? _carFullScreenTarget ?? isFullScreen.value) &&
-        hostFullScreen) {
+    final targetFullScreen =
+        fullScreen ?? _carFullScreenTarget ?? isFullScreen.value;
+    _setCarSystemBarStyle(playerFullScreen: targetFullScreen);
+    if (targetFullScreen && hostFullScreen) {
       await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     } else {
       await SystemChrome.setEnabledSystemUIMode(
@@ -1398,6 +1400,20 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         overlays: SystemUiOverlay.values,
       );
     }
+  }
+
+  void _setCarSystemBarStyle({required bool playerFullScreen}) {
+    SystemChrome.setSystemUIOverlayStyle(
+      SystemUiOverlayStyle(
+        statusBarColor:
+            playerFullScreen ? Colors.black : Colors.transparent,
+        statusBarIconBrightness:
+            playerFullScreen ? Brightness.light : null,
+        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarDividerColor: Colors.transparent,
+        systemNavigationBarContrastEnforced: false,
+      ),
+    );
   }
 
   Future<void> triggerFullScreen({
@@ -1571,6 +1587,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
 
     _playerCount = 0;
+    if (Platform.isAndroid && Pref.carMode) {
+      _setCarSystemBarStyle(playerFullScreen: false);
+    }
     if (removeSafeArea) {
       showSystemBar();
     }
