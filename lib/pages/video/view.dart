@@ -932,6 +932,9 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     final introHeight = maxHeight - height - padding.top;
     final showIntro =
         videoDetailController.isUgc && videoDetailController.showRelatedVideo;
+    // 右栏仍展示相关视频/播放列表时，评论移到左列简介下方；右栏无内容可展示时维持原状
+    final moveReplyToLeft = videoDetailController.showReply &&
+        (showIntro || _shouldShowSeasonPanel);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -952,12 +955,14 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
                 child: SizedBox(
                   width: width,
                   height: introHeight,
-                  child: videoIntro(
-                    width: width,
-                    height: introHeight,
-                    needRelated: false,
-                    needCtr: false,
-                  ),
+                  child: moveReplyToLeft
+                      ? introReplyPanel(width, introHeight)
+                      : videoIntro(
+                          width: width,
+                          height: introHeight,
+                          needRelated: false,
+                          needCtr: false,
+                        ),
                 ),
               ),
           ],
@@ -977,6 +982,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
                     showIntro: videoDetailController.isFileSource
                         ? true
                         : showIntro,
+                    showReply: !moveReplyToLeft,
                   ),
                   Expanded(
                     child: tabBarView(
@@ -998,7 +1004,8 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
                               ],
                             ),
                           ),
-                        if (videoDetailController.showReply) videoReplyPanel(),
+                        if (videoDetailController.showReply && !moveReplyToLeft)
+                          videoReplyPanel(),
                         if (_shouldShowSeasonPanel) seasonPanel,
                       ],
                     ),
@@ -1324,12 +1331,13 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     bool needIndicator = true,
     String? introText,
     bool showIntro = true,
+    bool showReply = true,
     VoidCallback? onTap,
   }) {
     final tabs = [
       if (showIntro)
         videoDetailController.isFileSource ? '离线视频' : introText ?? '简介',
-      if (videoDetailController.showReply) '评论',
+      if (videoDetailController.showReply && showReply) '评论',
       if (_shouldShowSeasonPanel) '播放列表',
     ];
     if (videoDetailController.tabCtr.length != tabs.length) {
@@ -1655,6 +1663,71 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     );
   }
 
+  List<Widget> introSlivers({
+    double? width,
+    double? height,
+    bool? isHorizontal,
+    bool needRelated = true,
+  }) {
+    return [
+      if (videoDetailController.isUgc) ...[
+        UgcIntroPanel(
+          key: videoIntroKey,
+          heroTag: heroTag,
+          showAiBottomSheet: showAiBottomSheet,
+          showEpisodes: showEpisodes,
+          onShowMemberPage: onShowMemberPage,
+          isPortrait: isPortrait,
+          isHorizontal: isHorizontal ?? width! / height! >= kScreenRatio,
+        ),
+        if (needRelated && videoDetailController.showRelatedVideo) ...[
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.only(
+                top: Style.safeSpace,
+              ),
+              child: Divider(
+                height: 1,
+                indent: 12,
+                endIndent: 12,
+                color: colorScheme.outline.withValues(alpha: .08),
+              ),
+            ),
+          ),
+          RelatedVideoPanel(key: videoRelatedKey, heroTag: heroTag),
+        ],
+      ] else
+        PgcIntroPage(
+          key: videoIntroKey,
+          heroTag: heroTag,
+          cid: videoDetailController.cid.value,
+          showEpisodes: showEpisodes,
+          showIntroDetail: showIntroDetail,
+          maxWidth: width ?? maxWidth,
+          isLandscape: !isPortrait,
+        ),
+      SliverToBoxAdapter(
+        child: SizedBox(
+          height:
+              (videoDetailController.isPlayAll && !isPortrait
+                  ? 80
+                  : Style.safeSpace) +
+              padding.bottom,
+        ),
+      ),
+    ];
+  }
+
+  // 车机宽屏：简介在上、评论区紧随其下，二者共用一个滚动区
+  Widget introReplyPanel(double width, double height) {
+    return NestedScrollView(
+      physics: platformAlwaysClampingPhysics,
+      headerSliverBuilder: (context, innerBoxIsScrolled) =>
+          introSlivers(width: width, height: height, needRelated: false),
+      body: videoReplyPanel(isNested: true),
+    );
+  }
+
   Widget videoIntro({
     double? width,
     double? height,
@@ -1672,53 +1745,12 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
           ? videoDetailController.effectiveIntroScrollCtr
           : null,
       physics: !needCtr ? platformAlwaysClampingPhysics : null,
-      slivers: [
-        if (videoDetailController.isUgc) ...[
-          UgcIntroPanel(
-            key: videoIntroKey,
-            heroTag: heroTag,
-            showAiBottomSheet: showAiBottomSheet,
-            showEpisodes: showEpisodes,
-            onShowMemberPage: onShowMemberPage,
-            isPortrait: isPortrait,
-            isHorizontal: isHorizontal ?? width! / height! >= kScreenRatio,
-          ),
-          if (needRelated && videoDetailController.showRelatedVideo) ...[
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.only(
-                  top: Style.safeSpace,
-                ),
-                child: Divider(
-                  height: 1,
-                  indent: 12,
-                  endIndent: 12,
-                  color: colorScheme.outline.withValues(alpha: .08),
-                ),
-              ),
-            ),
-            RelatedVideoPanel(key: videoRelatedKey, heroTag: heroTag),
-          ],
-        ] else
-          PgcIntroPage(
-            key: videoIntroKey,
-            heroTag: heroTag,
-            cid: videoDetailController.cid.value,
-            showEpisodes: showEpisodes,
-            showIntroDetail: showIntroDetail,
-            maxWidth: width ?? maxWidth,
-            isLandscape: !isPortrait,
-          ),
-        SliverToBoxAdapter(
-          child: SizedBox(
-            height:
-                (videoDetailController.isPlayAll && !isPortrait
-                    ? 80
-                    : Style.safeSpace) +
-                padding.bottom,
-          ),
-        ),
-      ],
+      slivers: introSlivers(
+        width: width,
+        height: height,
+        isHorizontal: isHorizontal,
+        needRelated: needRelated,
+      ),
     );
 
     if (videoDetailController.isPlayAll) {
