@@ -1375,11 +1375,19 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   // 全屏
   bool _fsProcessing = false;
   bool? _carFullScreenTarget;
+  int _carSystemUiRequest = 0;
 
   Future<void> syncCarWindowState({bool? fullScreen}) async {
+    final request = ++_carSystemUiRequest;
     if (!Platform.isAndroid || !Pref.carMode) return;
     final state = await CarWindowService.getWindowState();
-    final hostFullScreen = state.supported && state.isHostFullScreen;
+    // Window moves can emit several metric callbacks. Ignore stale replies so
+    // a previous full-window result cannot re-hide bars after a split result.
+    if (request != _carSystemUiRequest) return;
+    // Only the explicit native `full` state may hide the vehicle bars. A
+    // split or unknown host state always stays windowed and visible.
+    final hostFullScreen = state.supported &&
+        state.hostWindowState == 'full';
     carWindowed.value = !hostFullScreen;
     if ((fullScreen ?? _carFullScreenTarget ?? isFullScreen.value) &&
         hostFullScreen) {
