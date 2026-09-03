@@ -407,7 +407,12 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
     final isPlayAll = videoDetailController.isPlayAll;
     final anySeason = isSeason || isPart || isPgc || isPlayAll;
     final isFullScreen = this.isFullScreen;
-    final double widgetWidth = isLandscape && isFullScreen ? 42 : 35;
+    final useCarTouchTargets =
+        Platform.isAndroid && Pref.carMode && isFullScreen;
+    final double widgetWidth = useCarTouchTargets
+        ? 48
+        : (isLandscape && isFullScreen ? 42 : 35);
+    final double widgetHeight = useCarTouchTargets ? 48 : 30;
 
     Widget progressWidget(
       BottomControlType bottomControl,
@@ -415,12 +420,14 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
       /// 播放暂停
       BottomControlType.playOrPause => PlayOrPauseButton(
         plPlayerController: plPlayerController,
+        width: useCarTouchTargets ? 48 : 42,
+        height: useCarTouchTargets ? 48 : 34,
       ),
 
       /// 上一集
       BottomControlType.pre => ComBtn(
         width: widgetWidth,
-        height: 30,
+        height: widgetHeight,
         tooltip: '上一集',
         icon: const Icon(
           Icons.skip_previous,
@@ -437,7 +444,7 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
       /// 下一集
       BottomControlType.next => ComBtn(
         width: widgetWidth,
-        height: 30,
+        height: widgetHeight,
         tooltip: '下一集',
         icon: const Icon(
           Icons.skip_next,
@@ -471,7 +478,7 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
             final show = videoDetailController.showDmTrendChart.value;
             return ComBtn(
               width: widgetWidth,
-              height: 30,
+              height: widgetHeight,
               tooltip: '高能进度条',
               icon: DisabledIcon(
                 disable: !show,
@@ -533,7 +540,7 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
           if (videoDetailController.viewPointList.isNotEmpty) {
             return ComBtn(
               width: widgetWidth,
-              height: 30,
+              height: widgetHeight,
               tooltip: '分段信息',
               icon: DisabledIcon(
                 disable: !videoDetailController.showVP.value,
@@ -560,7 +567,7 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
       /// 选集
       BottomControlType.episode => ComBtn(
         width: widgetWidth,
-        height: 30,
+        height: widgetHeight,
         tooltip: '选集',
         icon: const Icon(
           Icons.list,
@@ -692,7 +699,7 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
               },
               child: SizedBox(
                 width: widgetWidth,
-                height: 30,
+                height: widgetHeight,
                 child: const Icon(
                   Icons.translate,
                   size: 18,
@@ -746,7 +753,7 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
               },
               child: SizedBox(
                 width: widgetWidth,
-                height: 30,
+                height: widgetHeight,
                 child: val == 0
                     ? const Icon(
                         Icons.closed_caption_off_outlined,
@@ -883,7 +890,7 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
       /// 全屏
       BottomControlType.fullscreen => ComBtn(
         width: widgetWidth,
-        height: 30,
+        height: widgetHeight,
         tooltip: isFullScreen ? '退出全屏' : '全屏',
         icon: isFullScreen
             ? const Icon(Icons.fullscreen_exit, size: 24, color: Colors.white)
@@ -1818,6 +1825,9 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
                           final controlsLock =
                               plPlayerController.controlsLock.value;
                           return ComBtn(
+                            width: Platform.isAndroid && Pref.carMode ? 48 : 34,
+                            height:
+                                Platform.isAndroid && Pref.carMode ? 48 : 34,
                             tooltip: controlsLock ? '解锁' : '锁定',
                             icon: controlsLock
                                 ? const Icon(
@@ -1859,6 +1869,8 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
                           borderRadius: BorderRadius.all(Radius.circular(8)),
                         ),
                         child: ComBtn(
+                          width: Platform.isAndroid && Pref.carMode ? 48 : 34,
+                          height: Platform.isAndroid && Pref.carMode ? 48 : 34,
                           tooltip: '截图',
                           icon: const Icon(
                             Icons.photo_camera,
