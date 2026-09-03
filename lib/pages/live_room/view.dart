@@ -213,6 +213,33 @@ class _LiveRoomPageState extends State<LiveRoomPage>
   late EdgeInsets padding;
   late bool isPortrait;
 
+  bool get _useCarWindowedFullScreen =>
+      Platform.isAndroid &&
+      Pref.carMode &&
+      isFullScreen &&
+      plPlayerController.carWindowed.value;
+
+  Widget _buildCarWindowedFullScreenPlayer() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final height = constraints.maxHeight;
+        return ColoredBox(
+          color: Colors.black,
+          child: SizedBox(
+            width: width,
+            height: height,
+            child: videoPlayerPanel(
+              true,
+              width: width,
+              height: height,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     Widget child;
@@ -418,7 +445,9 @@ class _LiveRoomPageState extends State<LiveRoomPage>
             appBar: isWindowMode && isFullScreen && !isPortrait
                 ? null
                 : _buildAppBar(isFullScreen),
-            body: isPortrait
+            body: _useCarWindowedFullScreen
+                ? _buildCarWindowedFullScreenPlayer()
+                : isPortrait
                 ? Obx(
                     () {
                       if (_liveRoomController.isPortrait.value) {

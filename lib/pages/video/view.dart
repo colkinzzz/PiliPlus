@@ -485,6 +485,32 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
       videoDetailController.removeSafeArea ||
       (isWindowMode && isFullScreen && !isPortrait);
 
+  bool _useCarWindowedFullScreen(bool isFullScreen) =>
+      Platform.isAndroid &&
+      Pref.carMode &&
+      isFullScreen &&
+      videoDetailController.plPlayerController.carWindowed.value;
+
+  Widget _buildCarWindowedFullScreenPlayer() {
+    // SafeArea has already removed the vehicle's bottom system/HVAC inset.
+    // Use the remaining layout constraints instead of MediaQuery.size so the
+    // contain fit is centred inside the visible pane, not behind the OEM bar.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final height = constraints.maxHeight;
+        return ColoredBox(
+          color: Colors.black,
+          child: SizedBox(
+            width: width,
+            height: height,
+            child: videoPlayer(width: width, height: height),
+          ),
+        );
+      },
+    );
+  }
+
   Widget get childWhenDisabled {
     return Obx(
       () {
@@ -521,7 +547,9 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
                     );
                   },
                 ),
-          body: ExtendedNestedScrollView(
+          body: _useCarWindowedFullScreen(isFullScreen)
+              ? _buildCarWindowedFullScreenPlayer()
+              : ExtendedNestedScrollView(
             onlyOneScrollInBody: true,
             physics: platformClampingPhysics,
             key: videoDetailController.scrollKey,
@@ -759,12 +787,14 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
                 height: padding.top,
                 brightness: colorScheme.brightness,
               ),
-        body: Padding(
-          padding: isFullScreen
-              ? EdgeInsets.zero
-              : padding.copyWith(top: 0, bottom: 0),
-          child: childWhenDisabledLandscapeInner(isFullScreen),
-        ),
+        body: _useCarWindowedFullScreen(isFullScreen)
+            ? _buildCarWindowedFullScreenPlayer()
+            : Padding(
+                padding: isFullScreen
+                    ? EdgeInsets.zero
+                    : padding.copyWith(top: 0, bottom: 0),
+                child: childWhenDisabledLandscapeInner(isFullScreen),
+              ),
       );
     },
   );
@@ -990,12 +1020,14 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
               height: padding.top,
               brightness: colorScheme.brightness,
             ),
-      body: Padding(
-        padding: isFullScreen
-            ? EdgeInsets.zero
-            : padding.copyWith(top: 0, bottom: 0),
-        child: childWhenDisabledAlmostSquareInner(isFullScreen),
-      ),
+      body: _useCarWindowedFullScreen(isFullScreen)
+          ? _buildCarWindowedFullScreenPlayer()
+          : Padding(
+              padding: isFullScreen
+                  ? EdgeInsets.zero
+                  : padding.copyWith(top: 0, bottom: 0),
+              child: childWhenDisabledAlmostSquareInner(isFullScreen),
+            ),
     );
   });
 
