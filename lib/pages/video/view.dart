@@ -933,9 +933,11 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     final showIntro =
         videoDetailController.isUgc && videoDetailController.showRelatedVideo;
     // 右栏仍展示相关视频/播放列表时，评论移到左列简介下方；右栏无内容可展示时维持原状
-    final moveReplyToLeft = videoDetailController.showReply &&
+    final moveReplyToLeft = Platform.isAndroid &&
+        Pref.carMode &&
+        videoDetailController.showReply &&
         (showIntro || _shouldShowSeasonPanel);
-    return Row(
+    final content = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Column(
@@ -1017,6 +1019,10 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
         ),
       ],
     );
+    // Replies moved to the left column still need a full-size MiniScaffold
+    // ancestor for secondary replies and other bottom sheets. The existing
+    // right-column MiniScaffold remains the host for related-video actions.
+    return moveReplyToLeft ? MiniScaffold(body: content) : content;
   }
 
   Widget get childWhenDisabledAlmostSquare => Obx(() {
@@ -1668,6 +1674,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     double? height,
     bool? isHorizontal,
     bool needRelated = true,
+    bool includeBottomSpacer = true,
   }) {
     return [
       if (videoDetailController.isUgc) ...[
@@ -1706,15 +1713,16 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
           maxWidth: width ?? maxWidth,
           isLandscape: !isPortrait,
         ),
-      SliverToBoxAdapter(
-        child: SizedBox(
-          height:
-              (videoDetailController.isPlayAll && !isPortrait
-                  ? 80
-                  : Style.safeSpace) +
-              padding.bottom,
+      if (includeBottomSpacer)
+        SliverToBoxAdapter(
+          child: SizedBox(
+            height:
+                (videoDetailController.isPlayAll && !isPortrait
+                    ? 80
+                    : Style.safeSpace) +
+                padding.bottom,
+          ),
         ),
-      ),
     ];
   }
 
@@ -1722,8 +1730,12 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
   Widget introReplyPanel(double width, double height) {
     return NestedScrollView(
       physics: platformAlwaysClampingPhysics,
-      headerSliverBuilder: (context, innerBoxIsScrolled) =>
-          introSlivers(width: width, height: height, needRelated: false),
+      headerSliverBuilder: (context, innerBoxIsScrolled) => introSlivers(
+        width: width,
+        height: height,
+        needRelated: false,
+        includeBottomSpacer: false,
+      ),
       body: videoReplyPanel(isNested: true),
     );
   }
