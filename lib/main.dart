@@ -328,17 +328,12 @@ class MyApp extends StatelessWidget {
       );
     }
 
-    if (isCarMode) {
-      // This launcher already lays the Activity out below its status strip.
-      // Passing the same top inset to MainApp creates a second blank row.
-      effectiveMediaQuery = effectiveMediaQuery.copyWith(
-        padding: effectiveMediaQuery.padding.copyWith(top: 0),
-        viewPadding: effectiveMediaQuery.viewPadding.copyWith(top: 0),
-      );
-    }
     child = MediaQuery(data: effectiveMediaQuery, child: child!);
 
     if (isCarMode) {
+      // Let the page background paint behind the transparent vehicle status
+      // bar. MainApp consumes viewPadding.top exactly once for interactive
+      // content, so do not zero it here and do not add a second top SafeArea.
       child = ColoredBox(
         color: Theme.of(context).scaffoldBackgroundColor,
         child: SafeArea(

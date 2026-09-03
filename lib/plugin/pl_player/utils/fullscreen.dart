@@ -74,7 +74,10 @@ bool get showSystemBar_ => _showSystemBar;
 Future<void>? hideSystemBar() {
   // Do not hide vehicle status/HVAC bars or alter the host window state.
   if (Platform.isAndroid && Pref.carMode) {
-    return null;
+    // Keep this future non-null for callers that wait for the transition
+    // (for example the image viewer), while deliberately leaving the OEM
+    // system bars untouched.
+    return Future<void>.value();
   }
   if (!_showSystemBar) {
     return null;
@@ -87,7 +90,7 @@ Future<void>? hideSystemBar() {
 Future<void>? showSystemBar() {
   // The vehicle shell, not the player, controls these overlays in car mode.
   if (Platform.isAndroid && Pref.carMode) {
-    return null;
+    return Future<void>.value();
   }
   if (_showSystemBar) {
     return null;
