@@ -59,7 +59,8 @@ import 'package:flutter/services.dart'
         DeviceOrientation,
         SystemChrome,
         SystemUiMode,
-        SystemUiOverlay;
+        SystemUiOverlay,
+        SystemUiOverlayStyle;
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:flutter_volume_controller/flutter_volume_controller.dart';
 import 'package:get/get.dart';
