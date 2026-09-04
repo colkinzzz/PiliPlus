@@ -1404,12 +1404,20 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   }
 
   void _setCarSystemBarStyle({required bool playerFullScreen}) {
+    final context = Get.context;
+    final theme = context == null ? null : Theme.of(context);
+    final windowedBackground = theme?.scaffoldBackgroundColor ?? Colors.black;
+    final windowedBrightness = theme?.brightness ?? Brightness.dark;
     SystemChrome.setSystemUIOverlayStyle(
       SystemUiOverlayStyle(
-        statusBarColor:
-            playerFullScreen ? Colors.black : Colors.transparent,
-        statusBarIconBrightness:
-            playerFullScreen ? Brightness.light : null,
+        statusBarColor: playerFullScreen ? Colors.black : windowedBackground,
+        statusBarBrightness:
+            playerFullScreen ? Brightness.dark : windowedBrightness,
+        statusBarIconBrightness: playerFullScreen ||
+                windowedBrightness == Brightness.dark
+            ? Brightness.light
+            : Brightness.dark,
+        systemStatusBarContrastEnforced: false,
         systemNavigationBarColor: Colors.transparent,
         systemNavigationBarDividerColor: Colors.transparent,
         systemNavigationBarContrastEnforced: false,

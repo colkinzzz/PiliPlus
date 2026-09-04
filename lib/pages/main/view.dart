@@ -533,7 +533,7 @@ class _MainAppState extends PopScopeState<MainApp>
     if (PlatformUtils.isMobile) {
       return AnnotatedRegion<SystemUiOverlayStyle>(
         value: SystemUiOverlayStyle(
-          statusBarColor: Colors.transparent,
+          statusBarColor: Theme.of(context).scaffoldBackgroundColor,
           statusBarBrightness: _colorScheme.brightness,
           statusBarIconBrightness: _colorScheme.brightness.reverse,
           systemStatusBarContrastEnforced: false,

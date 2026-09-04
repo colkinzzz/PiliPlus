@@ -24,7 +24,7 @@ class SimpleAppBar extends StatelessWidget {
       value: SystemUiOverlayStyle(
         statusBarBrightness: statusBarBrightness,
         statusBarIconBrightness: statusBarIconBrightness,
-        statusBarColor: Colors.transparent,
+        statusBarColor: backgroundColor,
         systemStatusBarContrastEnforced: false,
         systemNavigationBarColor: Colors.transparent,
         systemNavigationBarIconBrightness: brightness.reverse,
