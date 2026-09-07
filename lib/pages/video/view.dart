@@ -1775,17 +1775,27 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     ];
   }
 
-  // 车机宽屏：简介在上、评论区紧随其下，二者共用一个滚动区
+  // 车机宽屏：把简介和评论放进同一个 CustomScrollView。避免使用
+  // NestedScrollView 包裹评论自己的滚动视图，否则短简介会表现成
+  // 独立空列，且两个纵向滚动区域容易争夺手势。
   Widget introReplyPanel(double width, double height) {
-    return NestedScrollView(
-      physics: platformAlwaysClampingPhysics,
-      headerSliverBuilder: (context, innerBoxIsScrolled) => introSlivers(
-        width: width,
-        height: height,
-        needRelated: false,
-        includeBottomSpacer: false,
-      ),
-      body: videoReplyPanel(isNested: true),
+    return videoReplyPanel(
+      headerSlivers: [
+        ...introSlivers(
+          width: width,
+          height: height,
+          needRelated: false,
+          includeBottomSpacer: false,
+        ),
+        SliverToBoxAdapter(
+          child: Divider(
+            height: 1,
+            indent: 12,
+            endIndent: 12,
+            color: colorScheme.outline.withValues(alpha: .08),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1955,10 +1965,14 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     );
   }
 
-  Widget videoReplyPanel({bool isNested = false}) => VideoReplyPanel(
+  Widget videoReplyPanel({
+    bool isNested = false,
+    List<Widget> headerSlivers = const [],
+  }) => VideoReplyPanel(
     key: videoReplyPanelKey,
     isNested: isNested,
     heroTag: heroTag,
+    headerSlivers: headerSlivers,
   );
 
   // ai总结
