@@ -87,11 +87,20 @@ class VideoDetailPageV extends StatefulWidget {
 
 class _VideoDetailPageVState extends State<VideoDetailPageV>
     with RouteAware, RouteAwareMixin, WidgetsBindingObserver {
+  // Car split windows can be only slightly wider than tall. Keep them on the
+  // landscape details path even when they fall just below the normal player
+  // orientation threshold; phones and tablets do not use this path.
+  static const double _carDetailsMinScreenRatio = 1.12;
+
   final heroTag = Get.arguments['heroTag'];
 
   late final VideoDetailController videoDetailController;
   late final VideoReplyController _videoReplyController;
   PlPlayerController? plPlayerController;
+  // The car side rail has its own scroll position.  Sharing the intro
+  // controller here would make the two panels move together when the layout
+  // is rebuilt after a window resize.
+  final ScrollController _carRelatedScrollController = ScrollController();
 
   // intro ctr
   late final CommonIntroController introController =
@@ -329,6 +338,8 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
 
   @override
   void dispose() {
+    _carRelatedScrollController.dispose();
+
     plPlayerController
       ?..removeStatusLister(playerListener)
       ..removePositionListener(positionListener);
@@ -938,13 +949,212 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
           );
         }
 
-        return _childWhenDisabledLandscapeInner(isFullScreen);
+        return _buildCarDetailsOrFallback(isFullScreen);
       });
     }
-    return _childWhenDisabledLandscapeInner(isFullScreen);
+    return _buildCarDetailsOrFallback(isFullScreen);
   }
 
-  Widget _childWhenDisabledLandscapeInner(bool isFullScreen) {
+  Widget _buildCarDetailsOrFallback(bool isFullScreen) {
+    final useCarDetailsLayout =
+        Platform.isAndroid && Pref.carMode && !isFullScreen;
+    if (!useCarDetailsLayout) {
+      return _buildLandscapeDetailsFallback(isFullScreen);
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (_canUseCarDetailsLayout(constraints)) {
+          return _buildCarDetailsLayout(
+            width: constraints.maxWidth,
+            height: constraints.maxHeight,
+          );
+        }
+        // Narrow car windows keep the established tab layout.  The side rail
+        // is only enabled when both columns have enough room to remain usable.
+        return _buildLandscapeDetailsFallback(isFullScreen);
+      },
+    );
+  }
+
+  bool _canUseCarDetailsLayout(BoxConstraints constraints) {
+    if (!constraints.hasBoundedWidth || !constraints.hasBoundedHeight) {
+      return false;
+    }
+
+    final width = constraints.maxWidth;
+    final height = constraints.maxHeight;
+    if (width < 760 ||
+        height < 420 ||
+        width / height < _carDetailsMinScreenRatio) {
+      return false;
+    }
+
+    final showRelated =
+        videoDetailController.isUgc &&
+        videoDetailController.showRelatedVideo;
+    final showSeasonPanel = _shouldShowSeasonPanel;
+    final hasSideRail = showRelated || showSeasonPanel;
+    final railWidth = _carSideRailWidth(width, hasSideRail);
+    final mainWidth = width - railWidth;
+    if (mainWidth < 560 || (hasSideRail && railWidth < 240)) {
+      return false;
+    }
+
+    final videoHeight = min(
+      mainWidth / Style.aspectRatio16x9,
+      height * .68,
+    );
+    return videoHeight >= 220 && height - videoHeight >= 180;
+  }
+
+  double _carSideRailWidth(double width, bool hasSideRail) {
+    if (!hasSideRail) return 0;
+    final requested = clampDouble(width * .30, 260, 440);
+    return min(requested, width - 560);
+  }
+
+  Widget _buildCarDetailsLayout({
+    required double width,
+    required double height,
+  }) {
+    final showRelated =
+        videoDetailController.isUgc &&
+        videoDetailController.showRelatedVideo;
+    final showSeasonPanel = _shouldShowSeasonPanel;
+    final showReply = videoDetailController.showReply;
+    final hasSideRail = showRelated || showSeasonPanel;
+    final railWidth = _carSideRailWidth(width, hasSideRail);
+    final mainWidth = width - railWidth;
+    final videoHeight = min(
+      mainWidth / Style.aspectRatio16x9,
+      height * .68,
+    );
+    final bottomHeight = height - videoHeight;
+
+    Widget introPane() => LayoutBuilder(
+      builder: (context, constraints) => videoIntro(
+        width: constraints.maxWidth,
+        height: constraints.maxHeight,
+        needRelated: false,
+      ),
+    );
+
+    final bottomPanels = Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          flex: showReply ? 2 : 1,
+          child: introPane(),
+        ),
+        if (showReply) ...[
+          VerticalDivider(
+            width: 1,
+            thickness: 1,
+            color: colorScheme.outline.withValues(alpha: .08),
+          ),
+          Expanded(
+            flex: 3,
+            child: MiniScaffold(
+              body: videoReplyPanel(),
+            ),
+          ),
+        ],
+      ],
+    );
+
+    final mainColumn = SizedBox(
+      width: mainWidth,
+      height: height,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: mainWidth,
+            height: videoHeight,
+            child: videoPlayer(width: mainWidth, height: videoHeight),
+          ),
+          SizedBox(height: bottomHeight, child: bottomPanels),
+        ],
+      ),
+    );
+
+    final body = SizedBox(
+      width: width,
+      height: height,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          mainColumn,
+          if (hasSideRail)
+            _buildCarSideRail(
+              width: railWidth,
+              height: height,
+              showRelated: showRelated,
+              showSeasonPanel: showSeasonPanel,
+            ),
+        ],
+      ),
+    );
+
+    // Keep a full-size host for intro actions (AI summary, episode changes,
+    // report sheets).  The two interactive panels below add their own local
+    // hosts so reply and related-video sheets remain scoped to their column.
+    return MiniScaffold(
+      key: videoDetailController.childKey,
+      body: body,
+    );
+  }
+
+  Widget _buildCarSideRail({
+    required double width,
+    required double height,
+    required bool showRelated,
+    required bool showSeasonPanel,
+  }) {
+    final railChildren = <Widget>[
+      if (showRelated)
+        KeepAliveWrapper(
+          child: CustomScrollView(
+            key: PageStorageKey('car-related-$heroTag'),
+            controller: _carRelatedScrollController,
+            physics: platformClampingPhysics,
+            slivers: [
+              RelatedVideoPanel(
+                key: videoRelatedKey,
+                heroTag: heroTag,
+              ),
+            ],
+          ),
+        ),
+      if (showSeasonPanel) seasonPanel,
+    ];
+
+    return SizedBox(
+      width: width,
+      height: height,
+      child: MiniScaffold(
+        body: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            buildTabBar(
+              introText: '相关视频',
+              showIntro: showRelated,
+              showReply: false,
+            ),
+            Expanded(
+              child: tabBarView(
+                controller: videoDetailController.tabCtr,
+                children: railChildren,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLandscapeDetailsFallback(bool isFullScreen) {
     double width =
         clampDouble(maxHeight / maxWidth * 1.08, 0.5, 0.7) * maxWidth;
     if (maxWidth >= 560) {
@@ -955,11 +1165,11 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     final showSeasonPanel = _shouldShowSeasonPanel;
     final useCarDetailsLayout =
         Platform.isAndroid && Pref.carMode && !isFullScreen;
-    final moveReplyToLeft = useCarDetailsLayout &&
-        !videoDetailController.isFileSource &&
-        videoDetailController.showReply;
     final hasRightPanelContent =
-        videoDetailController.isFileSource || showIntro || showSeasonPanel;
+        videoDetailController.isFileSource ||
+        showIntro ||
+        showSeasonPanel ||
+        videoDetailController.showReply;
     final collapseEmptyRightPanel =
         useCarDetailsLayout && !hasRightPanelContent;
     if (collapseEmptyRightPanel) {
@@ -994,14 +1204,12 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
                 child: SizedBox(
                   width: width,
                   height: introHeight,
-                  child: moveReplyToLeft
-                      ? introReplyPanel(width, introHeight)
-                      : videoIntro(
-                          width: width,
-                          height: introHeight,
-                          needRelated: false,
-                          needCtr: false,
-                        ),
+                  child: videoIntro(
+                    width: width,
+                    height: introHeight,
+                    needRelated: false,
+                    needCtr: false,
+                  ),
                 ),
               ),
           ],
@@ -1022,7 +1230,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
                       showIntro: videoDetailController.isFileSource
                           ? true
                           : showIntro,
-                      showReply: !moveReplyToLeft,
+                      showReply: true,
                     ),
                     Expanded(
                       child: tabBarView(
@@ -1045,9 +1253,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
                                 ],
                               ),
                             ),
-                          if (videoDetailController.showReply &&
-                              !moveReplyToLeft)
-                            videoReplyPanel(),
+                          if (videoDetailController.showReply) videoReplyPanel(),
                           if (showSeasonPanel) seasonPanel,
                         ],
                       ),
@@ -1059,10 +1265,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
           ),
       ],
     );
-    // Replies moved to the left column still need a full-size MiniScaffold
-    // ancestor for secondary replies and other bottom sheets. The existing
-    // right-column MiniScaffold remains the host for related-video actions.
-    return moveReplyToLeft ? MiniScaffold(body: content) : content;
+    return content;
   }
 
   Widget get childWhenDisabledAlmostSquare => Obx(() {
@@ -1354,7 +1557,10 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
       child = plPlayer(width: maxWidth, height: maxHeight, isPipMode: true);
     } else if (!videoDetailController.horizontalScreen) {
       child = childWhenDisabled;
-    } else if (maxWidth / maxHeight >= kScreenRatio) {
+    } else if (maxWidth / maxHeight >= kScreenRatio ||
+        (Platform.isAndroid &&
+            Pref.carMode &&
+            maxWidth / maxHeight >= _carDetailsMinScreenRatio)) {
       child = childWhenDisabledLandscape;
     } else if (maxWidth / Style.aspectRatio16x9 < 0.4 * maxHeight) {
       child = childWhenDisabled;
@@ -1775,30 +1981,6 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     ];
   }
 
-  // 车机宽屏：把简介和评论放进同一个 CustomScrollView。避免使用
-  // NestedScrollView 包裹评论自己的滚动视图，否则短简介会表现成
-  // 独立空列，且两个纵向滚动区域容易争夺手势。
-  Widget introReplyPanel(double width, double height) {
-    return videoReplyPanel(
-      headerSlivers: [
-        ...introSlivers(
-          width: width,
-          height: height,
-          needRelated: false,
-          includeBottomSpacer: false,
-        ),
-        SliverToBoxAdapter(
-          child: Divider(
-            height: 1,
-            indent: 12,
-            endIndent: 12,
-            color: colorScheme.outline.withValues(alpha: .08),
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget videoIntro({
     double? width,
     double? height,
@@ -1965,14 +2147,10 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     );
   }
 
-  Widget videoReplyPanel({
-    bool isNested = false,
-    List<Widget> headerSlivers = const [],
-  }) => VideoReplyPanel(
+  Widget videoReplyPanel({bool isNested = false}) => VideoReplyPanel(
     key: videoReplyPanelKey,
     isNested: isNested,
     heroTag: heroTag,
-    headerSlivers: headerSlivers,
   );
 
   // ai总结
