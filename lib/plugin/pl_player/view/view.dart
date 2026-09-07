@@ -142,6 +142,7 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
   final RxDouble _brightnessValue = 0.0.obs;
   final RxBool _brightnessIndicator = false.obs;
   Timer? _brightnessTimer;
+  Timer? _carWindowMetricsTimer;
 
   late FullScreenMode mode;
 
@@ -349,8 +350,14 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
   @override
   void didChangeMetrics() {
     // The driver can move the app between the 2/3 pane and the full host area
-    // without Android reporting standard multi-window mode.
-    plPlayerController.syncCarWindowState();
+    // without Android reporting standard multi-window mode. Wait until its
+    // inset animation settles so one transition produces one native query.
+    if (!Platform.isAndroid || !Pref.carMode) return;
+    _carWindowMetricsTimer?.cancel();
+    _carWindowMetricsTimer = Timer(
+      const Duration(milliseconds: 150),
+      plPlayerController.syncCarWindowState,
+    );
   }
 
   Future<void> setBrightness(double value) async {
@@ -379,6 +386,7 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
   @override
   void dispose() {
     removeObserverMobile(this);
+    _carWindowMetricsTimer?.cancel();
     _danmakuListener?.cancel();
     _tapGestureRecognizer.dispose();
     _longPressRecognizer?.dispose();

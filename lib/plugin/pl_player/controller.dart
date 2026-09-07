@@ -59,8 +59,7 @@ import 'package:flutter/services.dart'
         DeviceOrientation,
         SystemChrome,
         SystemUiMode,
-        SystemUiOverlay,
-        SystemUiOverlayStyle;
+        SystemUiOverlay;
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:flutter_volume_controller/flutter_volume_controller.dart';
 import 'package:get/get.dart';
@@ -1377,6 +1376,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   bool _fsProcessing = false;
   bool? _carFullScreenTarget;
   int _carSystemUiRequest = 0;
+  bool? _carImmersiveSystemUi;
 
   Future<void> syncCarWindowState({bool? fullScreen}) async {
     final request = ++_carSystemUiRequest;
@@ -1389,11 +1389,19 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     // split or unknown host state always stays windowed and visible.
     final hostFullScreen = state.supported &&
         state.hostWindowState == 'full';
-    carWindowed.value = !hostFullScreen;
+    final windowed = !hostFullScreen;
+    if (carWindowed.value != windowed) {
+      carWindowed.value = windowed;
+    }
     final targetFullScreen =
         fullScreen ?? _carFullScreenTarget ?? isFullScreen.value;
-    _setCarSystemBarStyle(playerFullScreen: targetFullScreen);
-    if (targetFullScreen && hostFullScreen) {
+    final useImmersiveSystemUi = targetFullScreen && hostFullScreen;
+    // setEnabledSystemUIMode changes Android insets, which produces another
+    // metrics callback. Reapplying the same mode from that callback creates a
+    // feedback loop on some vehicle launchers and makes the status bar flash.
+    if (_carImmersiveSystemUi == useImmersiveSystemUi) return;
+    _carImmersiveSystemUi = useImmersiveSystemUi;
+    if (useImmersiveSystemUi) {
       await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     } else {
       await SystemChrome.setEnabledSystemUIMode(
@@ -1401,28 +1409,6 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         overlays: SystemUiOverlay.values,
       );
     }
-  }
-
-  void _setCarSystemBarStyle({required bool playerFullScreen}) {
-    final context = Get.context;
-    final theme = context == null ? null : Theme.of(context);
-    final windowedBackground = theme?.scaffoldBackgroundColor ?? Colors.black;
-    final windowedBrightness = theme?.brightness ?? Brightness.dark;
-    SystemChrome.setSystemUIOverlayStyle(
-      SystemUiOverlayStyle(
-        statusBarColor: playerFullScreen ? Colors.black : windowedBackground,
-        statusBarBrightness:
-            playerFullScreen ? Brightness.dark : windowedBrightness,
-        statusBarIconBrightness: playerFullScreen ||
-                windowedBrightness == Brightness.dark
-            ? Brightness.light
-            : Brightness.dark,
-        systemStatusBarContrastEnforced: false,
-        systemNavigationBarColor: Colors.transparent,
-        systemNavigationBarDividerColor: Colors.transparent,
-        systemNavigationBarContrastEnforced: false,
-      ),
-    );
   }
 
   Future<void> triggerFullScreen({
@@ -1597,7 +1583,14 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
     _playerCount = 0;
     if (Platform.isAndroid && Pref.carMode) {
-      _setCarSystemBarStyle(playerFullScreen: false);
+      _carSystemUiRequest++;
+      if (_carImmersiveSystemUi == true) {
+        SystemChrome.setEnabledSystemUIMode(
+          SystemUiMode.edgeToEdge,
+          overlays: SystemUiOverlay.values,
+        );
+      }
+      _carImmersiveSystemUi = false;
     }
     if (removeSafeArea) {
       showSystemBar();

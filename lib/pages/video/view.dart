@@ -71,6 +71,7 @@ import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/theme_utils.dart';
 import 'package:extended_nested_scroll_view/extended_nested_scroll_view.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, clampDouble;
+import 'package:flutter/services.dart' show SystemUiOverlayStyle;
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:get/get.dart';
@@ -496,19 +497,30 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     // SafeArea has already removed the vehicle's bottom system/HVAC inset.
     // Use the remaining layout constraints instead of MediaQuery.size so the
     // contain fit is centred inside the visible pane, not behind the OEM bar.
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = constraints.maxWidth;
-        final height = constraints.maxHeight;
-        return ColoredBox(
-          color: Colors.black,
-          child: SizedBox(
-            width: width,
-            height: height,
-            child: videoPlayer(width: width, height: height),
-          ),
-        );
-      },
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.black,
+        statusBarBrightness: Brightness.dark,
+        statusBarIconBrightness: Brightness.light,
+        systemStatusBarContrastEnforced: false,
+        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarDividerColor: Colors.transparent,
+        systemNavigationBarContrastEnforced: false,
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final width = constraints.maxWidth;
+          final height = constraints.maxHeight;
+          return ColoredBox(
+            color: Colors.black,
+            child: SizedBox(
+              width: width,
+              height: height,
+              child: videoPlayer(width: width, height: height),
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -525,14 +537,20 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
                     final brightness = colorScheme.brightness;
                     final Brightness statusBarBrightness;
                     final Brightness statusBarIconBrightness;
-                    final backgroundColor = isPortrait && scrollRatio > 0
+                    final extendCarPageColor = !isPortrait &&
+                        Platform.isAndroid &&
+                        Pref.carMode;
+                    final backgroundColor = extendCarPageColor
+                        ? theme.scaffoldBackgroundColor
+                        : scrollRatio > 0
                         ? Color.lerp(
                             Colors.black,
                             colorScheme.surface,
                             scrollRatio,
                           )!
                         : Colors.black;
-                    if (isPortrait && scrollRatio >= 0.5) {
+                    if (extendCarPageColor ||
+                        (isPortrait && scrollRatio >= 0.5)) {
                       statusBarBrightness = brightness;
                       statusBarIconBrightness = brightness.reverse;
                     } else {
@@ -787,6 +805,15 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
             : SimpleAppBar(
                 height: padding.top,
                 brightness: colorScheme.brightness,
+                backgroundColor: Platform.isAndroid && Pref.carMode
+                    ? theme.scaffoldBackgroundColor
+                    : Colors.black,
+                statusBarBrightness: Platform.isAndroid && Pref.carMode
+                    ? colorScheme.brightness
+                    : Brightness.dark,
+                statusBarIconBrightness: Platform.isAndroid && Pref.carMode
+                    ? colorScheme.brightness.reverse
+                    : Brightness.light,
               ),
         body: _useCarWindowedFullScreen(isFullScreen)
             ? _buildCarWindowedFullScreenPlayer()
@@ -1046,6 +1073,15 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
           : SimpleAppBar(
               height: padding.top,
               brightness: colorScheme.brightness,
+              backgroundColor: Platform.isAndroid && Pref.carMode
+                  ? theme.scaffoldBackgroundColor
+                  : Colors.black,
+              statusBarBrightness: Platform.isAndroid && Pref.carMode
+                  ? colorScheme.brightness
+                  : Brightness.dark,
+              statusBarIconBrightness: Platform.isAndroid && Pref.carMode
+                  ? colorScheme.brightness.reverse
+                  : Brightness.light,
             ),
       body: _useCarWindowedFullScreen(isFullScreen)
           ? _buildCarWindowedFullScreenPlayer()
