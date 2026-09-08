@@ -1,3 +1,4 @@
+import '../lib/utils/car_audio_focus_policy.dart';
 import '../lib/utils/car_playback_intent.dart';
 import '../lib/utils/car_window_state.dart';
 import '../lib/utils/car_recovery_budget.dart';
@@ -57,6 +58,14 @@ void main() {
   check(budget.nextDelay() == null, 'Cancel must not reset retry budget');
   budget.reset();
   check(budget.nextDelay()?.inSeconds == 1, 'Explicit retry resets budget');
+  check(carAudioFocusAction(-3) == CarAudioFocusAction.ignore,
+      'Navigation must not pause, duck, or acquire focus again');
+  check(carAudioFocusAction(-1) == CarAudioFocusAction.pauseUntilUserPlay,
+      'Competing music must pause without automatic restart');
+  check(carAudioFocusAction(-2) == CarAudioFocusAction.pauseTemporarily,
+      'Exclusive temporary interruption still pauses');
+  check(carAudioFocusAction(1) == CarAudioFocusAction.resume, 'Focus gain');
+  check(carAudioFocusAction(99) == CarAudioFocusAction.ignore, 'Unknown focus');
   final intent = CarPlaybackIntent();
   check(intent.canResume(), 'Initially eligible');
   intent.interrupted = true;
@@ -81,5 +90,12 @@ void main() {
     !intent.canResume(allowBackground: true),
     'Closed player never resumes',
   );
-  print('Car window, playback intent and recovery contracts passed');
+  final competingMedia = CarPlaybackIntent();
+  // Apply the same permanent-loss effect as both adapters, then simulate gain.
+  if (carAudioFocusAction(-1) == CarAudioFocusAction.pauseUntilUserPlay) {
+    competingMedia.wantsPlayback = false;
+  }
+  competingMedia.interrupted = false;
+  check(!competingMedia.canResume(), 'Music stopped: video must wait for user');
+  print('Car window, playback intent, audio focus and recovery contracts passed');
 }

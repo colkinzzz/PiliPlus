@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+import 'package:PiliPlus/utils/car_audio_focus_policy.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
@@ -9,8 +11,7 @@ class AudioSessionHandler {
   PlPlayerController? _duckedPlayer;
   double? _volumeBeforeDuck;
   bool interrupted = false;
-  bool _duckPaused = false;
-  bool? _pauseWhenDucked;
+  bool _usingCarFocus = false;
 
   Future<void> _restoreDuck() async {
     final saved = _volumeBeforeDuck;
@@ -38,16 +39,27 @@ class AudioSessionHandler {
     try {
       await _ready;
       if (!active) await _restoreDuck();
-      final pauseWhenDucked = Pref.carMode && Pref.carPauseForNavigation;
-      if (active && _pauseWhenDucked != pauseWhenDucked) {
-        await session.configure(
-          const AudioSessionConfiguration.music().copyWith(
-            androidWillPauseWhenDucked: pauseWhenDucked,
-          ),
-        );
-        _pauseWhenDucked = pauseWhenDucked;
+      final useCarFocus = active ? Platform.isAndroid && Pref.carMode : _usingCarFocus;
+      _usingCarFocus = useCarFocus;
+      final bool granted;
+      if (useCarFocus) {
+        final manager = AndroidAudioManager();
+        granted = active
+            ? await manager.requestAudioFocus(AndroidAudioFocusRequest(
+                gainType: AndroidAudioFocusGainType.gain,
+                audioAttributes: const AndroidAudioAttributes(
+                  usage: AndroidAudioUsage.media,
+                  contentType: AndroidAudioContentType.music,
+                ),
+                // Prevent framework ducking. Raw MAY_DUCK remains distinct
+                // from exclusive interruptions and is ignored by our policy.
+                willPauseWhenDucked: true,
+                onAudioFocusChanged: (focus) { _onCarFocus(focus.index); },
+              ))
+            : await manager.abandonAudioFocus();
+      } else {
+        granted = await session.setActive(active);
       }
-      final granted = await session.setActive(active);
       // Permanent focus loss may not emit an end event. An explicit new
       // successful request is also proof that the interruption has ended.
       if (active && granted) interrupted = false;
@@ -61,24 +73,49 @@ class AudioSessionHandler {
     _interruptedPlayer = null;
   }
 
+  Future<void> _onCarFocus(int focus) async {
+    if (!_usingCarFocus) return;
+    final player = PlPlayerController.instance;
+    switch (carAudioFocusAction(focus)) {
+      case CarAudioFocusAction.ignore:
+        // Headrest navigation owns its own output. Do not change volume,
+        // playback intent, resume ownership or request audio focus here.
+        return;
+      case CarAudioFocusAction.pauseUntilUserPlay:
+        _interruptedPlayer = null;
+        interrupted = true;
+        await player?.pause();
+        return;
+      case CarAudioFocusAction.pauseTemporarily:
+        interrupted = true;
+        if (player != null && player.carWantsPlayback) {
+          _interruptedPlayer = player;
+          await player.pause(isInterrupt: true);
+        }
+        return;
+      case CarAudioFocusAction.resume:
+        interrupted = false;
+        final owner = _interruptedPlayer;
+        _interruptedPlayer = null;
+        if (owner != null && identical(owner, player) && owner.canCarResume) {
+          await owner.play(systemResume: true);
+        }
+        return;
+    }
+  }
+
   Future<void> initSession() async {
     session = await AudioSession.instance;
     await session.configure(const AudioSessionConfiguration.music());
 
     session.interruptionEventStream.listen((event) async {
+      if (_usingCarFocus) return;
       final player = PlPlayerController.instance;
       if (event.begin) {
         if (event.type == AudioInterruptionType.duck) {
           if (player?.videoPlayerController?.state.playing != true ||
               _volumeBeforeDuck != null)
             return;
-          if (Pref.carMode && Pref.carPauseForNavigation) {
-            _duckPaused = true;
-            interrupted = true;
-            _interruptedPlayer = player;
-            await player!.pause(isInterrupt: true);
-            return;
-          }
           _duckedPlayer = player;
           _volumeBeforeDuck = player!.videoPlayerController!.state.volume;
           // Duck only this player's output, never the car's system volume.
@@ -96,15 +133,6 @@ class AudioSessionHandler {
         }
       } else if (event.type == AudioInterruptionType.duck) {
         await _restoreDuck();
-        if (_duckPaused) {
-          _duckPaused = false;
-          interrupted = false;
-          final owner = _interruptedPlayer;
-          _interruptedPlayer = null;
-          if (owner != null && identical(owner, player) && owner.canCarResume) {
-            await owner.play(systemResume: true);
-          }
-        }
       } else {
         interrupted = false;
         final owner = _interruptedPlayer;

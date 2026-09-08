@@ -23,14 +23,6 @@ import 'package:material_design_icons_flutter/material_design_icons_flutter.dart
 import 'package:material_ui/material_ui.dart';
 
 List<SettingsModel> get playSettings => [
-  if (Platform.isAndroid && Pref.carMode)
-    const SwitchModel(
-      title: '导航播报时暂停',
-      subtitle: '关闭时降低播放音量；手动暂停后不会自动续播',
-      leading: Icon(Icons.navigation_outlined),
-      setKey: SettingBoxKey.carPauseForNavigation,
-      defaultVal: false,
-    ),
   const SwitchModel(
     title: '弹幕开关',
     subtitle: '是否展示弹幕',
