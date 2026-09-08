@@ -56,13 +56,32 @@ class VideoPlayerServiceHandler extends BaseAudioHandler with SeekHandler {
     // player.pause();
   }
 
+  DateTime? _lastCarSkip;
+  bool _allowCarSkip() {
+    if (!Pref.carMode) return false;
+    final now = DateTime.now();
+    if (_lastCarSkip != null &&
+        now.difference(_lastCarSkip!) < const Duration(milliseconds: 500))
+      return false;
+    _lastCarSkip = now;
+    return true;
+  }
+
+  @override
+  Future<void> skipToNext() async {
+    if (_allowCarSkip()) PlPlayerController.instance?.carNext?.call();
+  }
+
+  @override
+  Future<void> skipToPrevious() async {
+    if (_allowCarSkip()) PlPlayerController.instance?.carPrevious?.call();
+  }
+
   @override
   Future<void> seek(Duration position) {
     playbackState.add(
       playbackState.value.copyWith(
-        updatePosition: position,
-      ),
-    );
+        updatePosition: position));
     return (onSeek?.call(position) ??
         PlPlayerController.seekToIfExists(position, isSeek: false));
     // await player.seekTo(position);
@@ -82,8 +101,7 @@ class VideoPlayerServiceHandler extends BaseAudioHandler with SeekHandler {
   void setPlaybackState(
     PlayerStatus status,
     bool isBuffering,
-    bool isLive,
-  ) {
+    bool isLive) {
     if (!enableBackgroundPlay ||
         _item.isEmpty ||
         !PlPlayerController.instanceExists()) {
@@ -132,8 +150,10 @@ class VideoPlayerServiceHandler extends BaseAudioHandler with SeekHandler {
             ),
         ],
         playing: playing,
-        systemActions: const {
+        systemActions: {
           MediaAction.seek,
+          if (Pref.carMode && !isLive) MediaAction.skipToNext,
+          if (Pref.carMode && !isLive) MediaAction.skipToPrevious,
         },
       ),
     );
@@ -290,8 +310,7 @@ class VideoPlayerServiceHandler extends BaseAudioHandler with SeekHandler {
     playbackState.add(
       PlaybackState(
         processingState: AudioProcessingState.idle,
-        playing: false,
-      ),
+        playing: false),
     );
   }
 
@@ -304,8 +323,6 @@ class VideoPlayerServiceHandler extends BaseAudioHandler with SeekHandler {
 
     playbackState.add(
       playbackState.value.copyWith(
-        updatePosition: position,
-      ),
-    );
+        updatePosition: position));
   }
 }

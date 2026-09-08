@@ -321,6 +321,22 @@ class VideoDetailController extends GetxController
   final isLoginVideo = Accounts.get(AccountType.video).isLogin;
 
   late final watchProgress = GStorage.watchProgress;
+  void saveCarProgress() {
+    if (!Pref.carMode ||
+        Pref.historyPause ||
+        isClosed ||
+        plPlayerController.processing ||
+        plPlayerController.cid != cid.value)
+      return;
+    if (plPlayerController.playerStatus.isCompleted) {
+      GStorage.watchProgress.delete('car:${cid.value}');
+      return;
+    }
+    final progress = plPlayerController.videoPlayerController?.state.position;
+    if (progress == null || progress.inMilliseconds <= 0) return;
+    GStorage.watchProgress.put('car:${cid.value}', progress.inMilliseconds);
+  }
+
   void cacheLocalProgress() {
     if (plPlayerController.playerStatus.isCompleted) {
       watchProgress.put(cid.value.toString(), entry.totalTimeMilli);
@@ -554,8 +570,7 @@ class VideoDetailController extends GetxController
         position: animation.drive(
           Tween<Offset>(
             begin: const Offset(-1.0, 0.0),
-            end: Offset.zero,
-          ),
+            end: Offset.zero),
         ),
         child: Padding(
           padding: const EdgeInsets.only(top: 5),
@@ -719,6 +734,45 @@ class VideoDetailController extends GetxController
     bool? autoplay,
     bool autoFullScreenFlag = false,
   }) async {
+    plPlayerController.carSaveProgress = saveCarProgress;
+    plPlayerController.carRefreshSource = () async {
+      if (isClosed || isFileSource) return null;
+      final expectedCid = cid.value;
+      final result = await _getVideoUrl(currentVideoQa.value?.code ?? 80);
+      if (isClosed || cid.value != expectedCid) return null;
+      if (result case Success(:final response)) {
+        final videos = response.dash?.video;
+        if (videos != null && videos.isNotEmpty) {
+          final selected = videos.firstWhere(
+            (v) =>
+                v.id == currentVideoQa.value?.code &&
+                currentDecodeFormats.codes.any((v.codecs ?? '').startsWith),
+            orElse: () => videos.first,
+          );
+          final audios = response.dash?.audio;
+          final audio = audios == null || audios.isEmpty
+              ? null
+              : audios.firstWhere(
+                  (a) => a.id == currentAudioQa?.code,
+                  orElse: () => audios.first,
+                );
+          return NetworkSource(
+            videoSource: VideoUtils.getCdnUrl(selected.playUrls),
+            audioSource: audio == null
+                ? null
+                : VideoUtils.getCdnUrl(audio.playUrls, isAudio: true),
+          );
+        }
+        final urls = response.durl;
+        if (urls != null && urls.length == 1) {
+          return NetworkSource(
+            videoSource: VideoUtils.getCdnUrl(urls.single.playUrls),
+            audioSource: null,
+          );
+        }
+      }
+      throw StateError('Cannot refresh playback URL');
+    };
     Duration? seek = defaultST ?? playedTime;
     if (seek == .zero) seek = null;
     seek ??= getFirstSegment();
@@ -732,8 +786,7 @@ class VideoDetailController extends GetxController
             )
           : NetworkSource(
               videoSource: videoUrl!,
-              audioSource: audioUrl,
-            ),
+              audioSource: audioUrl),
       seekTo: seek,
       duration: data.timeLength == null
           ? null
@@ -868,7 +921,16 @@ class VideoDetailController extends GetxController
         if (progress != null) {
           defaultST = Duration(milliseconds: progress);
         } else {
-          defaultST = Duration(milliseconds: data.lastPlayTime);
+          final localProgress = Pref.carMode && !Pref.historyPause
+              ? GStorage.watchProgress.get('car:${cid.value}')
+              : null;
+          final validLocal =
+              localProgress is int &&
+              localProgress > 0 &&
+              (data.timeLength == null ||
+                  localProgress < data.timeLength! - 1000);
+          defaultST = Duration(milliseconds: validLocal ? localProgress : data.lastPlayTime,
+          );
         }
       }
 
@@ -1604,9 +1666,7 @@ class VideoDetailController extends GetxController
         '/dlna',
         parameters: {
           'url': url,
-          'title': ?title,
-        },
-      );
+          'title': ?title});
     } else {
       res.toast();
     }

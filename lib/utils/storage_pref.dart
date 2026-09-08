@@ -49,6 +49,9 @@ import 'package:hive_ce/hive.dart';
 import 'package:material_ui/material_ui.dart';
 
 abstract final class Pref {
+  static bool get carPauseForNavigation =>
+      _setting.get(SettingBoxKey.carPauseForNavigation, defaultValue: false);
+
   static final Box _setting = GStorage.setting;
   static final Box _video = GStorage.video;
   static final Box _localCache = GStorage.localCache;

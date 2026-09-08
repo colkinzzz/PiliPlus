@@ -572,6 +572,17 @@ class _MainAppState extends PopScopeState<MainApp>
         userAvatar(colorScheme: _colorScheme, mainController: _mainController),
         const SizedBox(height: 8),
         msgBadge(_mainController),
+        TextButton(
+          onPressed: () => Get.toNamed('/history'),
+          style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+          child: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.history),
+              Text('播放历史', style: TextStyle(fontSize: 12)),
+            ],
+          ),
+        ),
         IconButton(
           tooltip: '搜索',
           icon: const Icon(

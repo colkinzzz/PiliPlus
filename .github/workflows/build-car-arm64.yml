@@ -47,6 +47,9 @@ jobs:
         shell: pwsh
         run: lib/scripts/build.ps1 android
 
+      - name: Verify car window and recovery contracts
+        run: dart tool/car_contract_test.dart
+
       - name: Build car arm64-v8a APK
         run: >-
           flutter build apk --release --split-per-abi

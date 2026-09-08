@@ -308,6 +308,7 @@ class MainActivity : AudioServiceActivity() {
         }
 
         return mapOf(
+            "schemaVersion" to 1,
             "isAutomotive" to isAutomotive,
             "isInMultiWindowMode" to isMultiWindow,
             "hostWindowState" to hostWindowState,

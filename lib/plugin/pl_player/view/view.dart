@@ -251,8 +251,16 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
     }
   }
 
+  void _bindCarMediaControls() {
+    plPlayerController.carNext = () => mounted && widget.introController != null
+        ? widget.introController!.nextPlay() : false;
+    plPlayerController.carPrevious = () => mounted && widget.introController != null
+        ? widget.introController!.prevPlay() : false;
+  }
+
   @override
   void initState() {
+    _bindCarMediaControls();
     super.initState();
     addObserverMobile(this);
 
@@ -329,19 +337,39 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
     );
   }
 
+  DateTime? _carBackgroundSince;
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (!plPlayerController.continuePlayInBackground.value) {
-      late final player = plPlayerController.videoPlayerController;
-      if (const <AppLifecycleState>[.paused, .detached].contains(state)) {
-        if (player != null && player.state.playing) {
-          _pauseDueToPauseUponEnteringBackgroundMode = true;
-          player.pause();
-        }
-      } else {
-        if (_pauseDueToPauseUponEnteringBackgroundMode) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _carBackgroundSince ??= DateTime.now();
+      widget.videoDetailController?.saveCarProgress();
+      plPlayerController.carInBackground = true;
+      if (!plPlayerController.continuePlayInBackground.value) {
+        _pauseDueToPauseUponEnteringBackgroundMode =
+            plPlayerController.carWantsPlayback;
+        plPlayerController.pause(isInterrupt: true);
+      }
+    } else if (state == AppLifecycleState.resumed) {
+      final sleptLong =
+          _carBackgroundSince != null &&
+          DateTime.now().difference(_carBackgroundSince!) >=
+              const Duration(seconds: 30);
+      _carBackgroundSince = null;
+      plPlayerController.carInBackground = false;
+      plPlayerController.syncCarWindowState();
+      if (_pauseDueToPauseUponEnteringBackgroundMode) {
           _pauseDueToPauseUponEnteringBackgroundMode = false;
-          player?.play();
+        if (plPlayerController.canCarResume) {
+          if (Platform.isAndroid &&
+              Pref.carMode &&
+              sleptLong &&
+              !plPlayerController.isFileSource) {
+            plPlayerController.scheduleCarRecovery();
+          } else {
+            plPlayerController.play(systemResume: true);
+          }
         }
       }
     }
@@ -1354,6 +1382,9 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
 
   @override
   Widget build(BuildContext context) {
+    if (widget.videoDetailController?.cid.value == plPlayerController.cid) {
+      _bindCarMediaControls();
+    }
     maxWidth = widget.maxWidth;
     maxHeight = widget.maxHeight;
     final isFullScreen = this.isFullScreen;

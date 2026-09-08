@@ -36,6 +36,9 @@ import 'package:PiliPlus/utils/android/android_helper.dart';
 import 'package:PiliPlus/utils/android/bindings.g.dart';
 import 'package:PiliPlus/utils/asset_utils.dart';
 import 'package:PiliPlus/utils/car_window_service.dart';
+import 'package:PiliPlus/utils/car_recovery_budget.dart';
+import 'package:PiliPlus/utils/car_playback_intent.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:PiliPlus/utils/device_utils.dart';
 import 'package:PiliPlus/utils/duration_utils.dart';
 import 'package:PiliPlus/utils/extension/box_ext.dart';
@@ -77,6 +80,121 @@ typedef PlayCallback = Future<void>? Function();
 
 class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   Player? _videoPlayerController;
+  final _carIntent = CarPlaybackIntent();
+  bool get carWantsPlayback => _carIntent.wantsPlayback;
+  set carWantsPlayback(bool value) => _carIntent.wantsPlayback = value;
+  bool get carInBackground => _carIntent.inBackground;
+  set carInBackground(bool value) => _carIntent.inBackground = value;
+  bool get _carDisposed => _carIntent.closed;
+  set _carDisposed(bool value) => _carIntent.closed = value;
+  int? _carRecoveringTicket;
+  bool get _carRecovering => _carRecoveringTicket == _carRecovery.generation;
+  bool _carExhaustionNotified = false;
+  bool _carNetworkOffline = false;
+  final _carRecovery = CarRecoveryBudget();
+  Timer? _carRetryTimer;
+  Timer? _carStableTimer;
+  Timer? _carStallTimer;
+  Duration? _lastCarProgress;
+  bool _carSourceReady = false;
+
+  void armCarStallTimer() {
+    _carStallTimer?.cancel();
+    if (!Platform.isAndroid ||
+        !Pref.carMode ||
+        !canCarResume ||
+        !_carSourceReady ||
+        isFileSource)
+      return;
+    _carStallTimer = Timer(const Duration(seconds: 15), scheduleCarRecovery);
+  }
+
+  StreamSubscription<List<ConnectivityResult>>? _carNetwork;
+  Future<NetworkSource?> Function()? carRefreshSource;
+  bool Function()? carNext;
+  bool Function()? carPrevious;
+  bool get canCarResume {
+    _carIntent.interrupted = audioSessionHandler?.interrupted == true;
+    return _carIntent.canResume(
+      allowBackground: continuePlayInBackground.value,
+    );
+  }
+
+  void Function()? carSaveProgress;
+  int _lastCarSavedSecond = -1;
+
+  void cancelCarRecovery() {
+    _carStallTimer?.cancel();
+    _carRecovery.cancel();
+    _carRetryTimer?.cancel();
+    _carRetryTimer = null;
+    _carStableTimer?.cancel();
+    _carStableTimer = null;
+  }
+
+  void scheduleCarRecovery() {
+    if (!Platform.isAndroid ||
+        !Pref.carMode ||
+        !canCarResume ||
+        !_carSourceReady ||
+        _carNetworkOffline ||
+        isFileSource ||
+        _carRetryTimer != null ||
+        _carRecovering)
+      return;
+    _carStableTimer?.cancel();
+    _carStableTimer = null;
+    final delay = _carRecovery.nextDelay();
+    if (delay == null) {
+      if (!_carExhaustionNotified) SmartDialog.showToast('网络或播放线路异常，请检查网络后重新播放');
+      _carExhaustionNotified = true;
+      return;
+    }
+    _carExhaustionNotified = false;
+    final ticket = _carRecovery.generation;
+    final source = dataSource;
+    _carRetryTimer = Timer(delay, () async {
+      _carRetryTimer = null;
+      if (!canCarResume ||
+          !_carRecovery.isCurrent(ticket) ||
+          !identical(source, dataSource))
+        return;
+      _carRecoveringTicket = ticket;
+      bool opened = false;
+      try {
+        final links = await carRefreshSource?.call().timeout(
+          const Duration(seconds: 15),
+        );
+        if (!canCarResume ||
+            !_carRecovery.isCurrent(ticket) ||
+            !identical(source, dataSource))
+          return;
+        final position = _videoPlayerController?.state.position;
+        _lastCarProgress = position;
+        await _createVideoController(
+          links ?? source,
+          isLive ? null : position,
+          null,
+        );
+        if (canCarResume && _carRecovery.isCurrent(ticket)) {
+          await play(systemResume: true);
+          opened = true;
+        }
+      } catch (_) {
+        // A failed refresh shares the same bounded budget as stream errors.
+      } finally {
+        if (_carRecoveringTicket == ticket) _carRecoveringTicket = null;
+        if (canCarResume && _carRecovery.isCurrent(ticket)) {
+          if (opened) {
+            armCarStallTimer();
+          } else {
+            scheduleCarRecovery();
+          }
+        }
+      }
+    });
+  }
+
   VideoController? _videoController;
 
   static PlPlayerController? _instance;
@@ -538,6 +656,21 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   // 添加一个私有构造函数
   PlPlayerController._() {
+    if (Platform.isAndroid && Pref.carMode) {
+      _carNetwork = Connectivity().onConnectivityChanged.listen((networks) {
+        final wasOffline = _carNetworkOffline;
+        _carNetworkOffline = networks.contains(ConnectivityResult.none);
+        if (_carNetworkOffline) {
+          cancelCarRecovery();
+          return;
+        }
+        if (wasOffline) _carRecovery.reset();
+        if (!networks.contains(ConnectivityResult.none) &&
+            (wasOffline || isBuffering.value || _carRecovery.attempts > 0)) {
+          scheduleCarRecovery();
+        }
+      });
+    }
     if (PlatformUtils.isMobile) {
       _orientationListener = NativeDeviceOrientationPlatform.instance
           .onOrientationChanged(
@@ -609,12 +742,16 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     bool autoFullScreenFlag = false,
   }) async {
     try {
+      cancelCarRecovery();
+      _carRecovery.reset();
+      carWantsPlayback = autoplay;
       _processing = true;
       this.isLive = isLive;
       _videoType = videoType ?? VideoType.ugc;
       this.width = width;
       this.height = height;
       this.dataSource = dataSource;
+      _carSourceReady = true;
       _autoPlay = autoplay;
       // 初始化视频倍速
       // _playbackSpeed.value = speed;
@@ -635,7 +772,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       cancelLongPressTimer();
       if (_videoPlayerController != null &&
           _videoPlayerController!.state.playing) {
-        await pause(notify: false);
+        await pause(notify: false, isInterrupt: true);
       }
 
       if (_playerCount == 0) {
@@ -827,8 +964,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       Media(
         video,
         start: seekTo,
-        extras: extras.isEmpty ? null : extras,
-      ),
+        extras: extras.isEmpty ? null : extras),
       play: false,
     );
   }
@@ -919,7 +1055,17 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       ///completed
       stream.completed.listen((bool completed) {
         if (completed) {
+          if (Platform.isAndroid && Pref.carMode && carWantsPlayback &&
+              !isFileSource && (isLive ||
+                  (player.state.duration > Duration.zero &&
+                   player.state.position + const Duration(seconds: 5) < player.state.duration))) {
+            scheduleCarRecovery();
+            return;
+          }
+          cancelCarRecovery();
+          carWantsPlayback = false;
           playerStatus.value = .completed;
+          carSaveProgress?.call();
 
           for (final element in _statusListeners) {
             element(.completed);
@@ -931,7 +1077,32 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
       /// position
       stream.position.listen((Duration position) {
+        if (position != _lastCarProgress &&
+            Platform.isAndroid &&
+            Pref.carMode &&
+            canCarResume &&
+            !isBuffering.value &&
+            player.state.playing) {
+          _lastCarProgress = position;
+          armCarStallTimer();
+          // First progress cancels the pending retry; only sustained progress
+          // replenishes the budget, so short play/error loops remain bounded.
+          _carRetryTimer?.cancel();
+          _carRetryTimer = null;
+          _carStableTimer ??= Timer(const Duration(seconds: 20), () {
+            _carStableTimer = null;
+            if (canCarResume && !isBuffering.value && player.state.playing) {
+              _carRecovery.reset();
+            }
+          });
+        }
         final posInSeconds = position.inSeconds;
+        if (Pref.carMode &&
+            posInSeconds > 0 &&
+            posInSeconds ~/ 5 != _lastCarSavedSecond) {
+          _lastCarSavedSecond = posInSeconds ~/ 5;
+          carSaveProgress?.call();
+        }
 
         if (posInSeconds != this.position.value) {
           if (!isSeeking.value) {
@@ -953,6 +1124,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       }),
       stream.buffering.listen((bool buffering) {
         isBuffering.value = buffering;
+        if (buffering && Platform.isAndroid && Pref.carMode) {
+          _carStableTimer?.cancel();
+          _carStableTimer = null;
+          armCarStallTimer();
+        }
         videoPlayerServiceHandler?.onStatusChange(
           playerStatus.value,
           buffering,
@@ -971,6 +1147,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           }
         })),
       stream.error.listen((String event) {
+        if (Platform.isAndroid && Pref.carMode && !isFileSource) {
+          scheduleCarRecovery();
+          return;
+        }
         if (dataSource is FileSource &&
             event.startsWith("Failed to open file")) {
           return;
@@ -1109,8 +1289,21 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   }
 
   /// 播放视频
-  Future<void> play({bool repeat = false, bool hideControls = true}) async {
-    if (_playerCount == 0) return;
+  Future<void> play({bool repeat = false, bool hideControls = true,
+    bool systemResume = false,
+  }) async {
+    if (_playerCount == 0 || _carDisposed) return;
+    if (systemResume && !canCarResume) return;
+    if (!systemResume) {
+      carWantsPlayback = true;
+      _carRecovery.reset();
+      audioSessionHandler?.cancelResume();
+    }
+    final ticket = _carRecovery.generation;
+    if (audioSessionHandler != null &&
+        !await audioSessionHandler!.setActive(true))
+      return;
+    if (!canCarResume || _carDisposed || !_carRecovery.isCurrent(ticket)) return;
     // 播放时自动隐藏控制条
     controls = !hideControls;
     // repeat为true，将从头播放
@@ -1121,15 +1314,22 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
     await _videoPlayerController?.play();
 
-    audioSessionHandler?.setActive(true);
-
     playerStatus.value = PlayerStatus.playing;
+    armCarStallTimer();
     // screenManager.setOverlays(false);
   }
 
   /// 暂停播放
   Future<void> pause({bool notify = true, bool isInterrupt = false}) async {
+    if (!isInterrupt) {
+      carWantsPlayback = false;
+      audioSessionHandler?.cancelResume();
+    }
+    carSaveProgress?.call();
+    cancelCarRecovery();
+    final ticket = _carRecovery.generation;
     await _videoPlayerController?.pause();
+    if (_carDisposed || !_carRecovery.isCurrent(ticket)) return;
     playerStatus.value = PlayerStatus.paused;
 
     // 主动暂停时让出音频焦点
@@ -1387,8 +1587,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     if (request != _carSystemUiRequest) return;
     // Only the explicit native `full` state may hide the vehicle bars. A
     // split or unknown host state always stays windowed and visible.
-    final hostFullScreen = state.supported &&
-        state.hostWindowState == 'full';
+    final hostFullScreen = state.canUseImmersive;
     final windowed = !hostFullScreen;
     if (carWindowed.value != windowed) {
       carWindowed.value = windowed;
@@ -1581,6 +1780,14 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       return;
     }
 
+    _carDisposed = true;
+    cancelCarRecovery();
+    _carNetwork?.cancel();
+    carSaveProgress?.call();
+    carSaveProgress = null;
+    carRefreshSource = null;
+    carNext = carPrevious = null;
+    ++_carSystemUiRequest;
     _playerCount = 0;
     if (Platform.isAndroid && Pref.carMode) {
       _carSystemUiRequest++;
