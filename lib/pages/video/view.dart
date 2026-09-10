@@ -87,10 +87,12 @@ class VideoDetailPageV extends StatefulWidget {
 
 class _VideoDetailPageVState extends State<VideoDetailPageV>
     with RouteAware, RouteAwareMixin, WidgetsBindingObserver {
-  // Car split windows can be only slightly wider than tall. Keep them on the
-  // landscape details path even when they fall just below the normal player
-  // orientation threshold; phones and tablets do not use this path.
-  static const double _carDetailsMinScreenRatio = 1.12;
+  // A vehicle's right-side split pane can be only a few pixels wider than it
+  // is tall after the OEM status and climate bars are removed. Treat every
+  // landscape car pane as a candidate for the car details layout; the stricter
+  // width, rail and height checks in _canUseCarDetailsLayout still prevent
+  // cramped columns. Phones and tablets never use this car-only threshold.
+  static const double _carDetailsMinScreenRatio = 1.0;
 
   final heroTag = Get.arguments['heroTag'];
 
