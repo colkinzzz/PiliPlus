@@ -56,6 +56,7 @@ class UgcIntroPanel extends StatefulWidget {
     required this.onShowMemberPage,
     required this.isPortrait,
     required this.isHorizontal,
+    this.alwaysShowDetails = false,
   });
   final String heroTag;
   final Function showAiBottomSheet;
@@ -63,6 +64,7 @@ class UgcIntroPanel extends StatefulWidget {
   final ValueChanged<int?> onShowMemberPage;
   final bool isPortrait;
   final bool isHorizontal;
+  final bool alwaysShowDetails;
 
   @override
   State<UgcIntroPanel> createState() => _UgcIntroPanelState();
@@ -137,7 +139,8 @@ class _UgcIntroPanelState extends State<UgcIntroPanel> {
                       const SizedBox(height: 2),
                       _buildArgueInfo(argueMsg),
                     ],
-                  if (isHorizontal && PlatformUtils.isDesktop)
+                  if (widget.alwaysShowDetails ||
+                      (isHorizontal && PlatformUtils.isDesktop))
                     ..._infos(videoDetail)
                   else
                     Obx(

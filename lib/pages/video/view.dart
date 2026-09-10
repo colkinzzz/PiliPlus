@@ -1039,6 +1039,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
         width: constraints.maxWidth,
         height: constraints.maxHeight,
         needRelated: false,
+        alwaysShowDetails: true,
       ),
     );
 
@@ -1932,6 +1933,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     bool? isHorizontal,
     bool needRelated = true,
     bool includeBottomSpacer = true,
+    bool alwaysShowDetails = false,
   }) {
     return [
       if (videoDetailController.isUgc) ...[
@@ -1943,6 +1945,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
           onShowMemberPage: onShowMemberPage,
           isPortrait: isPortrait,
           isHorizontal: isHorizontal ?? width! / height! >= kScreenRatio,
+          alwaysShowDetails: alwaysShowDetails,
         ),
         if (needRelated && videoDetailController.showRelatedVideo) ...[
           SliverToBoxAdapter(
@@ -1989,6 +1992,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     bool? isHorizontal,
     bool needRelated = true,
     bool needCtr = true,
+    bool alwaysShowDetails = false,
   }) {
     if (videoDetailController.isFileSource) {
       return localIntroPanel(needCtr: needCtr);
@@ -2005,6 +2009,7 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
         height: height,
         isHorizontal: isHorizontal,
         needRelated: needRelated,
+        alwaysShowDetails: alwaysShowDetails,
       ),
     );
 
