@@ -50,6 +50,9 @@ jobs:
       - name: Verify car window and recovery contracts
         run: dart tool/car_contract_test.dart
 
+      - name: Verify car sidebar tap targets
+        run: flutter test --no-pub test/widgets/car_side_navigation_test.dart
+
       - name: Build car arm64-v8a APK
         run: >-
           flutter build apk --release --split-per-abi

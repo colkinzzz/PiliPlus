@@ -47,6 +47,32 @@ every five seconds and at interruption, respecting the history pause preference.
 Explicit seek/history progress takes precedence over the local checkpoint.
 The sidebar history button uses the existing `/history` route.
 
+## Car sidebar touch regression
+
+The vehicle recording shows the middle Home/Dynamics/Mine destinations requiring
+a tap below their displayed position, while the header shortcuts remain usable.
+The original middle group has a separate NavigationDrawer/ListView/flex layout
+(or a NavigationRail on narrower windows), unlike the header's ordinary buttons.
+The recording alone does not prove whether the underlying OEM container or a
+framework layout/scroll state is responsible; do not compensate all pointer
+coordinates or move the established system-bar safe areas based on this symptom.
+
+Android car mode now uses `CarSideNavigation`: each destination is a TextButton
+containing its icon, label and selected background. Header and destinations share
+one explicitly unpadded viewport with normal Flutter hit testing. It retains
+custom destination order, dynamic unread badges, `MainController.setIndex`, and
+the existing history/search actions. Short windows can scroll. Non-car navigation,
+player layout, immersive-window classification and audio policy are unchanged.
+
+Run `flutter test test/widgets/car_side_navigation_test.dart`. The car workflow
+runs it before the APK build. It covers button-center/upper/lower taps, wide and
+narrow sidebars, full/split/short windows, UI scaling, changing safe insets, 20
+consecutive window resizes, custom destination order, and header actions.
+
+On the actual vehicle, tap each visible icon and label (not below the tile),
+repeat after full/split transitions, and check unread badges and custom navigation
+order. Passing widget tests does not validate the OEM's touch-coordinate mapping.
+
 Navigation handling is based on the standard MAY_DUCK focus request, not app
 package names. OEM navigation requesting exclusive/permanent focus cannot be
 distinguished from other exclusive audio by this API; verify actual headrest

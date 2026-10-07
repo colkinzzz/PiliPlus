@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:PiliPlus/common/assets.dart';
 import 'package:PiliPlus/common/constants.dart';
 import 'package:PiliPlus/common/style.dart';
+import 'package:PiliPlus/common/widgets/car_side_navigation.dart';
 import 'package:PiliPlus/common/widgets/floating_navigation_bar.dart';
 import 'package:PiliPlus/common/widgets/flutter/pop_scope.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
@@ -22,6 +23,7 @@ import 'package:PiliPlus/utils/mobile_observer.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
+import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
@@ -408,6 +410,24 @@ class _MainAppState extends PopScopeState<MainApp>
 
   Widget _sideBar() {
     if (_mainController.navigationBars.length > 1) {
+      if (Platform.isAndroid && Pref.carMode) {
+        return Obx(
+          () => CarSideNavigation(
+            header: userAndSearchVertical(),
+            extended: context.isTablet && _mainController.optTabletNav,
+            selectedIndex: _mainController.selectedIndex.value,
+            onDestinationSelected: _mainController.setIndex,
+            destinations: [
+              for (final type in _mainController.navigationBars)
+                CarSideNavigationDestination(
+                  label: type.label,
+                  icon: _buildIcon(type: type),
+                  selectedIcon: _buildIcon(type: type, selected: true),
+                ),
+            ],
+          ),
+        );
+      }
       if (context.isTablet && _mainController.optTabletNav) {
         return Padding(
           padding: const .only(top: 25),
