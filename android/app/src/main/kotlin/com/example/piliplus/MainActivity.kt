@@ -1,7 +1,6 @@
 package com.example.piliplus
 
 import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.hardware.display.DisplayManager
@@ -347,11 +346,6 @@ class MainActivity : AudioServiceActivity() {
             window.attributes.layoutInDisplayCutoutMode =
                 LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
-    }
-
-    override fun onDestroy() {
-        stopService(Intent(this, com.ryanheise.audioservice.AudioService::class.java))
-        super.onDestroy()
     }
 
     override fun onUserLeaveHint() {

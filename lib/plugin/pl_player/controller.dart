@@ -17,8 +17,6 @@ import 'package:PiliPlus/models/user/danmaku_rule.dart';
 import 'package:PiliPlus/models/video/play/url.dart';
 import 'package:PiliPlus/models_new/video/video_shot/data.dart';
 import 'package:PiliPlus/pages/danmaku/danmaku_model.dart';
-import 'package:PiliPlus/pages/setting/models/play_settings.dart'
-    show kMaxVolume;
 import 'package:PiliPlus/pages/sponsor_block/block_mixin.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_status.dart';
@@ -29,6 +27,7 @@ import 'package:PiliPlus/plugin/pl_player/models/heart_beat_type.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_repeat.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/plugin/pl_player/models/video_fit_type.dart';
+import 'package:PiliPlus/plugin/pl_player/utils/danmaku_options.dart';
 import 'package:PiliPlus/plugin/pl_player/utils/fullscreen.dart';
 import 'package:PiliPlus/services/service_locator.dart';
 import 'package:PiliPlus/utils/accounts.dart';
@@ -43,8 +42,10 @@ import 'package:PiliPlus/utils/device_utils.dart';
 import 'package:PiliPlus/utils/duration_utils.dart';
 import 'package:PiliPlus/utils/extension/box_ext.dart';
 import 'package:PiliPlus/utils/extension/num_ext.dart';
+import 'package:PiliPlus/utils/extension/size_ext.dart';
 import 'package:PiliPlus/utils/feed_back.dart';
 import 'package:PiliPlus/utils/image_utils.dart';
+import 'package:PiliPlus/utils/ios/pip_helper.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
@@ -60,6 +61,7 @@ import 'package:flutter/services.dart'
     show
         HapticFeedback,
         DeviceOrientation,
+        KeyDownEvent,
         SystemChrome,
         SystemUiMode,
         SystemUiOverlay;
@@ -77,6 +79,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:window_manager/window_manager.dart';
 
 typedef PlayCallback = Future<void>? Function();
+typedef PlayOwner = ({String tag, Type type});
 
 class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   Player? _videoPlayerController;
@@ -146,7 +149,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _carStableTimer = null;
     final delay = _carRecovery.nextDelay();
     if (delay == null) {
-      if (!_carExhaustionNotified) SmartDialog.showToast('网络或播放线路异常，请检查网络后重新播放');
+      if (!_carExhaustionNotified)
+        SmartDialog.showToast('网络或播放线路异常，请检查网络后重新播放');
       _carExhaustionNotified = true;
       return;
     }
@@ -199,7 +203,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   static PlPlayerController? _instance;
 
-  final playerStatus = PlPlayerStatus(.playing);
+  PlayerStatus playerStatus = .paused;
 
   final Rx<DataStatus> dataStatus = Rx(.none);
 
@@ -208,6 +212,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   final RxBool isSeeking = false.obs;
 
   final RxInt position = RxInt(0);
+  final RxInt seekPosition = RxInt(0);
+  int get progress => isSeeking.value ? seekPosition.value : position.value;
 
   int get positionInMilliseconds =>
       videoPlayerController?.state.position.inMilliseconds ?? 0;
@@ -327,6 +333,58 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       (PlatformUtils.isDesktop && isDesktopPip);
   late bool isDesktopPip = false;
   late Rect _lastWindowBounds;
+  static Rect? _lastPipBounds;
+
+  Rect _adjustPipBounds(Rect lastRect, Size size, double aspectRatio) {
+    final lastSize = lastRect.size;
+    final lastOrientation = lastSize.orientation;
+    final orientation = size.orientation;
+
+    if (lastOrientation != orientation) {
+      final double width, height;
+      switch (orientation) {
+        case .portrait:
+          if (lastSize.width > size.height) {
+            height = min(lastSize.width, _lastWindowBounds.size.height);
+            width = height * aspectRatio;
+          } else {
+            height = size.height;
+            width = size.width;
+          }
+        case .landscape:
+          if (lastSize.height > size.width) {
+            width = lastSize.height;
+            height = width / aspectRatio;
+          } else {
+            height = size.height;
+            width = size.width;
+          }
+      }
+
+      return _lastPipBounds = Rect.fromLTWH(
+        lastRect.left,
+        lastRect.top,
+        width,
+        height,
+      );
+    }
+    return _lastPipBounds = Rect.fromLTWH(
+      lastRect.left,
+      lastRect.top,
+      lastSize.width,
+      lastSize.width / aspectRatio,
+    );
+  }
+
+  bool updatePipBounds() {
+    if (isDesktopPip) {
+      windowManager.getBounds().then((rect) {
+        if (isDesktopPip) _lastPipBounds = rect;
+      });
+      return true;
+    }
+    return false;
+  }
 
   late final showWindowTitleBar = Pref.showWindowTitleBar;
   late final RxBool isAlwaysOnTop = false.obs;
@@ -358,27 +416,34 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       windowManager.setTitleBarStyle(TitleBarStyle.hidden);
     }
 
+    const shortSide = 280.0;
+    const minShortSide = 160.0;
     final Size size;
+    final Size minimumSize;
     final state = videoPlayerController!.state;
     int width = state.width;
     int height = state.height;
-    if (width == 0) {
-      width = this.width ?? 16;
-    }
-    if (height == 0) {
-      height = this.height ?? 9;
-    }
+    if (width == 0) width = this.width ?? 16;
+    if (height == 0) height = this.height ?? 9;
+    final aspectRatio = width / height;
     if (height > width) {
-      size = Size(280.0, 280.0 * height / width);
+      size = Size(shortSide, shortSide / aspectRatio);
+      minimumSize = Size(minShortSide, minShortSide / aspectRatio);
     } else {
-      size = Size(280.0 * width / height, 280.0);
+      size = Size(shortSide * aspectRatio, shortSide);
+      minimumSize = Size(minShortSide * aspectRatio, minShortSide);
     }
 
-    await windowManager.setMinimumSize(size);
+    await windowManager.setMinimumSize(minimumSize);
     setAlwaysOnTop(true);
-    windowManager
-      ..setSize(size)
-      ..setAspectRatio(width / height);
+    if (_lastPipBounds != null) {
+      windowManager.setBounds(
+        _adjustPipBounds(_lastPipBounds!, size, aspectRatio),
+      );
+    } else {
+      windowManager.setSize(size);
+    }
+    windowManager.setAspectRatio(width / height);
   }
 
   void toggleDesktopPip() {
@@ -406,6 +471,18 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   void enterPip({bool autoEnter = false}) {
     if (videoPlayerController case NativePlayer(:final state)) {
+      if (Platform.isIOS) {
+        if (videoController?.id.value case final textureId?) {
+          IOSPipHelper.enter(
+            textureId,
+            width: state.width == 0 ? width : state.width,
+            height: state.height == 0 ? height : state.height,
+            autoEnter: autoEnter,
+            state: _iosPipState(state),
+          );
+        }
+        return;
+      }
       PageUtils.enterPip(
         autoEnter: autoEnter,
         width: state.width == 0 ? width : state.width,
@@ -418,7 +495,30 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   void _disableAutoEnterPip() {
     if (_isAutoEnterPip) {
-      PiliAndroidHelper.disableAutoEnterPip();
+      if (Platform.isIOS) {
+        IOSPipHelper.disableAutoEnter();
+      } else {
+        PiliAndroidHelper.disableAutoEnterPip();
+      }
+    }
+  }
+
+  Map<String, Object> _iosPipState(PlayerState state, [Duration? position]) {
+    return {
+      'isPlaying': playerStatus.isPlaying,
+      'isBuffering': isBuffering.value,
+      'isLive': isLive,
+      'position': (position ?? state.position).inMilliseconds,
+      'duration': durationInMilliseconds,
+      'speed': state.rate,
+    };
+  }
+
+  void _updateIOSPip([Duration? position]) {
+    if (Platform.isIOS && IOSPipHelper.needsUpdate) {
+      if (_videoPlayerController case final player?) {
+        IOSPipHelper.update(_iosPipState(player.state, position));
+      }
     }
   }
 
@@ -557,10 +657,16 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     return _instance != null;
   }
 
-  static void setPlayCallBack(PlayCallback? playCallBack) {
+  static void setPlayCallBack(
+    PlayCallback? playCallBack, {
+    PlayOwner? playOwner,
+  }) {
     _playCallBack = playCallBack;
+    _playOwner = playOwner;
   }
 
+  static PlayOwner? _playOwner;
+  static PlayOwner? get playOwner => _playOwner;
   static PlayCallback? _playCallBack;
 
   static Future<void>? playIfExists() {
@@ -569,23 +675,21 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   // try to get PlayerStatus
   static PlayerStatus? getPlayerStatusIfExists() {
-    return _instance?.playerStatus.value;
+    return _instance?.playerStatus;
   }
 
-  static Future<void> pauseIfExists({
+  static Future<void>? pauseIfExists({
     bool notify = true,
     bool isInterrupt = false,
-  }) async {
+  }) {
     if (_instance?.playerStatus.isPlaying ?? false) {
-      await _instance?.pause(notify: notify, isInterrupt: isInterrupt);
+      return _instance?.pause(notify: notify, isInterrupt: isInterrupt);
     }
+    return null;
   }
 
-  static Future<void> seekToIfExists(
-    Duration position, {
-    bool isSeek = true,
-  }) async {
-    await _instance?.seekTo(position, isSeek: isSeek);
+  static Future<void>? seekToIfExists(Duration position, {bool isSeek = true}) {
+    return _instance?.seekTo(position, isSeek: isSeek);
   }
 
   static double? getVolumeIfExists() {
@@ -686,12 +790,14 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
     if (Platform.isAndroid && autoPiP) {
       if (DeviceUtils.sdkInt < 31) {
-        AndroidHelper$ToDart.onUserLeaveHint = Runnable.implement(
-          $Runnable(run: _onUserLeaveHint),
-        );
+        final func = Runnable.implement($Runnable(run: _onUserLeaveHint));
+        AndroidHelper$ToDart.onUserLeaveHint = func;
+        func.release();
       } else {
         _isAutoEnterPip = true;
       }
+    } else if (Platform.isIOS && autoPiP && IOSPipHelper.isAvailable) {
+      _isAutoEnterPip = true;
     }
   }
 
@@ -753,8 +859,6 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       this.dataSource = dataSource;
       _carSourceReady = true;
       _autoPlay = autoplay;
-      // 初始化视频倍速
-      // _playbackSpeed.value = speed;
       // 初始化数据加载状态
       dataStatus.value = DataStatus.loading;
       // 初始化全屏方向
@@ -871,7 +975,6 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       'volume':
           (PlatformUtils.isMobile ? Pref.playerVolume : volume.value * 100)
               .toString(),
-      'volume-max': kMaxVolume.toString(),
     };
     final autosync = Pref.autosync;
     if (autosync != '0') {
@@ -960,11 +1063,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       audioFilterExtras(volume, map: extras);
     }
 
+    assert(!isLive || seekTo == null);
     await player.open(
-      Media(
-        video,
-        start: seekTo,
-        extras: extras.isEmpty ? null : extras),
+      Media(video, start: seekTo, extras: extras.isEmpty ? null : extras),
       play: false,
     );
   }
@@ -974,10 +1075,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       return null;
     }
     if (_videoPlayerController case final ctr? when (ctr.current.isNotEmpty)) {
-      return ctr.open(
-        ctr.current.last.copyWith(start: ctr.state.position),
-        play: true,
-      );
+      var media = ctr.current.last;
+      if (!isLive) media = media.copyWith(start: ctr.state.position);
+      return ctr.open(media, play: true);
     }
     return null;
   }
@@ -986,33 +1086,52 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   Future<void> _initializePlayer() async {
     if (_instance == null) return;
     // 设置倍速
-    if (isLive) {
-      await setPlaybackSpeed(1.0);
-    } else {
-      if (_videoPlayerController?.state.rate != _playbackSpeed.value) {
-        await setPlaybackSpeed(_playbackSpeed.value);
+    if (_videoPlayerController != null) {
+      final speed = isLive ? 1.0 : playbackSpeed;
+      if (_videoPlayerController!.state.rate != speed) {
+        await setPlaybackSpeed(speed);
       }
     }
     _initVideoFit();
-    // if (_looping) {
-    //   await setLooping(_looping);
-    // }
-
-    // 跳转播放
-    // if (seekTo != Duration.zero) {
-    //   await this.seekTo(seekTo);
-    // }
 
     // 自动播放
     if (_autoPlay) {
       playIfExists();
-      // await play(duration: duration);
     }
   }
 
   List<StreamSubscription>? _subscriptions;
   final Set<ValueChanged<Duration>> _positionListeners = {};
   final Set<ValueChanged<PlayerStatus>> _statusListeners = {};
+
+  Timer? _wakeLockTimer;
+
+  void _startWakeLockTimer() {
+    _wakeLockTimer?.cancel();
+    _wakeLockTimer = Timer(const Duration(milliseconds: 500), _stopWakeLock);
+  }
+
+  void _stopWakeLockTimer() {
+    _wakeLockTimer?.cancel();
+    _wakeLockTimer = null;
+  }
+
+  void _stopWakeLock() {
+    WakelockPlus.disable();
+    _updatePlaybackState(debugLabel: 'onVideoPaused');
+  }
+
+  void _updatePlaybackState({Duration? position, String? debugLabel}) {
+    videoPlayerServiceHandler?.onUpdateState(
+      playerStatus,
+      isBuffering.value,
+      isLive,
+      position: position ?? _videoPlayerController!.state.position,
+      speed: playbackSpeed,
+      debugLabel: debugLabel,
+    );
+    _updateIOSPip(position);
+  }
 
   /// 播放事件监听
   void _startListeners(NativePlayer player) {
@@ -1021,8 +1140,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _subscriptions = [
       /// playing
       stream.playing.listen((bool playing) {
-        WakelockPlus.toggle(enable: playing);
         if (playing) {
+          playerStatus = .playing;
+          _stopWakeLockTimer();
+          _updatePlaybackState();
+          WakelockPlus.enable();
+
           if (_isAutoEnterPip) {
             if (_isCurrVideoPage) {
               enterPip(autoEnter: true);
@@ -1030,17 +1153,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
               _disableAutoEnterPip();
             }
           }
-          playerStatus.value = .playing;
         } else {
+          playerStatus = .paused;
+          _startWakeLockTimer();
           _disableAutoEnterPip();
-          playerStatus.value = .paused;
+          _updateIOSPip();
         }
-
-        videoPlayerServiceHandler?.onStatusChange(
-          playerStatus.value,
-          isBuffering.value,
-          isLive,
-        );
 
         for (final element in _statusListeners) {
           element(playing ? .playing : .paused);
@@ -1055,17 +1173,22 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       ///completed
       stream.completed.listen((bool completed) {
         if (completed) {
-          if (Platform.isAndroid && Pref.carMode && carWantsPlayback &&
-              !isFileSource && (isLive ||
+          if (Platform.isAndroid &&
+              Pref.carMode &&
+              carWantsPlayback &&
+              !isFileSource &&
+              (isLive ||
                   (player.state.duration > Duration.zero &&
-                   player.state.position + const Duration(seconds: 5) < player.state.duration))) {
+                      player.state.position + const Duration(seconds: 5) <
+                          player.state.duration))) {
             scheduleCarRecovery();
             return;
           }
           cancelCarRecovery();
           carWantsPlayback = false;
-          playerStatus.value = .completed;
+          playerStatus = .completed;
           carSaveProgress?.call();
+          _startWakeLockTimer();
 
           for (final element in _statusListeners) {
             element(.completed);
@@ -1105,11 +1228,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         }
 
         if (posInSeconds != this.position.value) {
-          if (!isSeeking.value) {
-            this.position.value = posInSeconds;
+          if (posInSeconds == 0 && playerStatus.isPlaying) {
+            _updatePlaybackState(position: position);
           }
 
-          videoPlayerServiceHandler?.onPositionChange(position);
+          this.position.value = posInSeconds;
 
           makeHeartBeat(posInSeconds);
         }
@@ -1118,7 +1241,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           element(position);
         }
       }),
-      stream.duration.listen(updateDuration),
+      stream.duration.listen((Duration duration) {
+        updateDuration(duration);
+        _updateIOSPip();
+      }),
       stream.buffer.listen((Duration buffer) {
         buffered.value = buffer.inSeconds;
       }),
@@ -1129,11 +1255,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           _carStableTimer = null;
           armCarStallTimer();
         }
-        videoPlayerServiceHandler?.onStatusChange(
-          playerStatus.value,
-          buffering,
-          isLive,
-        );
+        if (!playerStatus.isCompleted) {
+          _stopWakeLockTimer();
+          _updatePlaybackState();
+        }
       }),
       if (kDebugMode)
         stream.log.listen(((PlayerLog log) {
@@ -1159,7 +1284,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           if (event.startsWith('tcp: ffurl_read returned ') ||
               event.startsWith("Failed to open https://") ||
               event.startsWith("Can not open external file https://")) {
-            Future.delayed(const Duration(milliseconds: 3000), refreshPlayer);
+            Timer(const Duration(milliseconds: 3000), refreshPlayer);
           }
           return;
         }
@@ -1172,7 +1297,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
             'controllerStream.error.listen',
             const Duration(milliseconds: 10000),
             () {
-              Future.delayed(const Duration(milliseconds: 3000), () {
+              Timer(const Duration(milliseconds: 3000), () {
                 // if (kDebugMode) {
                 //   debugPrint("isBuffering.value: ${isBuffering.value}");
                 // }
@@ -1221,6 +1346,20 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
   }
 
+  Future<void> seek(Duration position, {bool isSeek = false}) async {
+    if (isSeek) {
+      /// 拖动进度条调节时，不等待第一帧，防止抖动
+      await _videoPlayerController?.stream.buffer.first;
+    }
+    danmakuController?.clear();
+    try {
+      await _videoPlayerController?.seek(position);
+      _updateIOSPip(position);
+    } catch (e) {
+      if (kDebugMode) debugPrint('seek failed: $e');
+    }
+  }
+
   /// 跳转至指定位置
   Future<void> seekTo(Duration position, {bool isSeek = true}) async {
     if (_playerCount == 0) {
@@ -1231,26 +1370,13 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
     _heartDuration = position.inSeconds;
 
-    Future<void> seek() async {
-      if (isSeek) {
-        /// 拖动进度条调节时，不等待第一帧，防止抖动
-        await _videoPlayerController?.stream.buffer.first;
-      }
-      danmakuController?.clear();
-      try {
-        await _videoPlayerController?.seek(position);
-      } catch (e) {
-        if (kDebugMode) debugPrint('seek failed: $e');
-      }
-    }
-
     if (duration.value != 0) {
-      seek();
+      seek(position, isSeek: isSeek);
     } else {
       // if (kDebugMode) debugPrint('seek duration else');
       _subForSeek?.cancel();
       _subForSeek = duration.listen((_) {
-        seek();
+        seek(position, isSeek: isSeek);
         _cancelSubForSeek();
       });
     }
@@ -1260,36 +1386,27 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   Future<void> setPlaybackSpeed(double speed) async {
     lastPlaybackSpeed = playbackSpeed;
 
-    if (speed == _videoPlayerController?.state.rate) {
-      return;
-    }
+    if (speed == _videoPlayerController?.state.rate) return;
 
     await _videoPlayerController?.setRate(speed);
-    _playbackSpeed.value = speed;
+    if (!isLive) _playbackSpeed.value = speed;
+    _updatePlaybackState();
     if (danmakuController != null) {
       try {
-        DanmakuOption currentOption = danmakuController!.option;
-        double defaultDuration = currentOption.duration * lastPlaybackSpeed;
-        double defaultStaticDuration =
-            currentOption.staticDuration * lastPlaybackSpeed;
-        DanmakuOption updatedOption = currentOption.copyWith(
-          duration: defaultDuration / speed,
-          staticDuration: defaultStaticDuration / speed,
+        danmakuController?.updateOption(
+          danmakuController!.option.copyWith(
+            duration: DanmakuOptions.danmakuDuration / speed,
+            staticDuration: DanmakuOptions.danmakuStaticDuration / speed,
+          ),
         );
-        danmakuController!.updateOption(updatedOption);
       } catch (_) {}
     }
   }
 
-  // 还原默认速度
-  double playSpeedDefault = Pref.playSpeedDefault;
-  Future<void> setDefaultSpeed() async {
-    await _videoPlayerController?.setRate(playSpeedDefault);
-    _playbackSpeed.value = playSpeedDefault;
-  }
-
   /// 播放视频
-  Future<void> play({bool repeat = false, bool hideControls = true,
+  Future<void> play({
+    bool repeat = false,
+    bool hideControls = true,
     bool systemResume = false,
   }) async {
     if (_playerCount == 0 || _carDisposed) return;
@@ -1303,20 +1420,19 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     if (audioSessionHandler != null &&
         !await audioSessionHandler!.setActive(true))
       return;
-    if (!canCarResume || _carDisposed || !_carRecovery.isCurrent(ticket)) return;
+    if (!canCarResume || _carDisposed || !_carRecovery.isCurrent(ticket))
+      return;
     // 播放时自动隐藏控制条
     controls = !hideControls;
     // repeat为true，将从头播放
     if (repeat) {
-      // await seekTo(Duration.zero);
       await seekTo(Duration.zero, isSeek: false);
     }
 
     await _videoPlayerController?.play();
 
-    playerStatus.value = PlayerStatus.playing;
+    playerStatus = .playing;
     armCarStallTimer();
-    // screenManager.setOverlays(false);
   }
 
   /// 暂停播放
@@ -1330,7 +1446,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     final ticket = _carRecovery.generation;
     await _videoPlayerController?.pause();
     if (_carDisposed || !_carRecovery.isCurrent(ticket)) return;
-    playerStatus.value = PlayerStatus.paused;
+    playerStatus = .paused;
 
     // 主动暂停时让出音频焦点
     if (!isInterrupt) {
@@ -1351,10 +1467,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     });
   }
 
+  void onSeekStart(int seekFrom) {
+    seekPosition.value = seekFrom;
+    isSeeking.value = true;
+  }
+
   void onSeekEnd() {
-    if (seekToPos != null) {
-      feedBack();
-    }
     if (showSeekPreview) {
       showPreview.value = false;
     }
@@ -1811,8 +1929,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       _clearPreview();
     }
     if (Platform.isAndroid) {
-      AndroidHelper$ToDart.onUserLeaveHint?.release();
       AndroidHelper$ToDart.onUserLeaveHint = null;
+    } else if (Platform.isIOS) {
+      IOSPipHelper.dispose();
     }
     _timer?.cancel();
     // _position.close();
@@ -1835,9 +1954,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _removeListeners();
     _positionListeners.clear();
     _statusListeners.clear();
-    if (playerStatus.isPlaying) {
-      WakelockPlus.disable();
-    }
+    _stopWakeLockTimer();
+    WakelockPlus.disable();
     if (kDebugMode) {
       debugPrint('dispose player');
     }
@@ -1901,20 +2019,26 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     videoShot = await VideoHttp.videoshot(bvid: bvid, cid: cid!);
   }
 
+  int _screenshotState = 0;
   Future<void> takeScreenshot() async {
+    if (_screenshotState > 0) return;
+    _screenshotState = 1;
     SmartDialog.showToast('截图中');
-    final time = DurationUtils.formatDuration(
-      positionInMilliseconds / 1000,
-    ).replaceAll(':', '-');
     final image = await videoPlayerController?.screenshot();
     if (image != null) {
-      SmartDialog.showToast('点击弹窗保存截图');
-      showDialog(
+      SmartDialog.showToast('点击弹窗或按 Enter 保存截图');
+      await showDialog(
         context: Get.context!,
-        builder: (context) => GestureDetector(
-          onTap: () async {
+        requestFocus: true,
+        builder: (context) {
+          Future<void> save() async {
+            if (_screenshotState > 1) return;
+            _screenshotState = 2;
             final bytes = await image.toByteData(format: .png);
             if (bytes != null) {
+              final time = DurationUtils.formatDuration(
+                positionInMilliseconds / 1000,
+              ).replaceAll(':', '-');
               ImageUtils.saveByteImg(
                 bytes: bytes.buffer.asUint8List(),
                 fileName: 'screenshot_${cid}_$time',
@@ -1923,35 +2047,54 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
               SmartDialog.showToast('保存失败');
             }
             Get.back();
-          },
-          child: Align(
-            alignment: Alignment.centerRight,
-            child: Padding(
-              padding: const EdgeInsets.only(right: 12),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: min(MediaQuery.widthOf(context) / 3, 350),
-                ),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      width: 5,
-                      color: ColorScheme.of(context).surface,
+          }
+
+          return Focus(
+            autofocus: true,
+            onKeyEvent: (node, event) {
+              if (event is KeyDownEvent) {
+                final key = event.logicalKey;
+                if (key == .keyS || key == .enter || key == .numpadEnter) {
+                  save();
+                  return .handled;
+                }
+              }
+              return .ignored;
+            },
+            child: GestureDetector(
+              onTap: save,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: min(MediaQuery.widthOf(context) / 3, 350),
                     ),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(5),
-                    child: RawImage(image: image),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          width: 5,
+                          color: ColorScheme.of(context).surface,
+                        ),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(5),
+                        child: RawImage(image: image),
+                      ),
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-        ),
-      ).whenComplete(image.dispose);
+          );
+        },
+      );
+      image.dispose();
     } else {
       SmartDialog.showToast('截图失败');
     }
+    _screenshotState = 0;
   }
 
   void onPopInvokedWithResult(bool didPop, Object? result) {
