@@ -5,7 +5,18 @@ class CarSideNavigationDestination {
     required this.label,
     required this.icon,
     required this.selectedIcon,
-  });
+    required this.navigationIndex,
+  }) : onPressed = null;
+
+  const CarSideNavigationDestination.action({
+    required this.label,
+    required this.icon,
+    required VoidCallback this.onPressed,
+  }) : selectedIcon = icon,
+       navigationIndex = null;
+
+  final int? navigationIndex;
+  final VoidCallback? onPressed;
 
   final String label;
   final Widget icon;
@@ -16,8 +27,9 @@ class CarSideNavigationDestination {
 ///
 /// The header and destinations share one explicitly unpadded scroll viewport;
 /// there is no separately flexed NavigationDrawer ListView retaining its own
-/// scroll/padding state after a host-window resize. Short windows can still
-/// scroll without overlapping the header or dropping a destination.
+/// scroll/padding state after a host-window resize. Equal space above and below
+/// the destinations centers them in the entire safe viewport, including the
+/// header's space. Short windows can scroll without overlapping the header.
 class CarSideNavigation extends StatelessWidget {
   const CarSideNavigation({
     super.key,
@@ -42,38 +54,39 @@ class CarSideNavigation extends StatelessWidget {
       child: SafeArea(
         bottom: false,
         right: false,
-        child: Padding(
-          padding: EdgeInsets.only(top: extended ? 25 : 0),
-          child: LayoutBuilder(
-            builder: (context, constraints) => SingleChildScrollView(
-              primary: false,
-              padding: EdgeInsets.zero,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: IntrinsicHeight(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      header,
-                      Expanded(
-                        child: Align(
-                          alignment: Alignment.center,
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              for (
-                                var index = 0;
-                                index < destinations.length;
-                                index++
-                              )
-                                _destination(index, colorScheme),
-                            ],
-                          ),
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            primary: false,
+            padding: EdgeInsets.zero,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: IntrinsicHeight(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.topCenter,
+                        child: Padding(
+                          padding: EdgeInsets.only(top: extended ? 25 : 0),
+                          child: header,
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (
+                          var index = 0;
+                          index < destinations.length;
+                          index++
+                        )
+                          _destination(index, colorScheme),
+                      ],
+                    ),
+                    const Spacer(),
+                  ],
                 ),
               ),
             ),
@@ -85,7 +98,7 @@ class CarSideNavigation extends StatelessWidget {
 
   Widget _destination(int index, ColorScheme colors) {
     final destination = destinations[index];
-    final selected = index == selectedIndex;
+    final selected = destination.navigationIndex == selectedIndex;
     final icon = selected ? destination.selectedIcon : destination.icon;
     final label = Text(
       destination.label,
@@ -101,7 +114,9 @@ class CarSideNavigation extends StatelessWidget {
           height: extended ? 56 : 64,
           child: TextButton(
             key: ValueKey('car-nav-destination-$index'),
-            onPressed: () => onDestinationSelected(index),
+            onPressed:
+                destination.onPressed ??
+                () => onDestinationSelected(destination.navigationIndex!),
             style: TextButton.styleFrom(
               foregroundColor: selected
                   ? colors.onSecondaryContainer
@@ -124,7 +139,10 @@ class CarSideNavigation extends StatelessWidget {
                   )
                 : Column(
                     mainAxisSize: MainAxisSize.min,
-                    children: [icon, if (selected) label],
+                    children: [
+                      icon,
+                      if (selected || destination.onPressed != null) label,
+                    ],
                   ),
           ),
         ),

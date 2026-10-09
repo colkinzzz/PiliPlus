@@ -402,19 +402,34 @@ class _MainAppState extends PopScopeState<MainApp>
   Widget _sideBar() {
     if (_mainController.navigationBars.length > 1) {
       if (Platform.isAndroid && Pref.carMode) {
+        final navigationBars = _mainController.navigationBars;
+        final mineIndex = navigationBars.indexOf(NavigationBarType.mine);
+        final historyIndex = mineIndex < 0 ? navigationBars.length : mineIndex;
+        final history = CarSideNavigationDestination.action(
+          label: '播放历史',
+          icon: const Icon(Icons.history),
+          onPressed: () => Get.toNamed('/history'),
+        );
         return Obx(
           () => CarSideNavigation(
-            header: userAndSearchVertical(),
+            header: userAndSearchVertical(showHistory: false),
             extended: context.isTablet && _mainController.optTabletNav,
             selectedIndex: _mainController.selectedIndex.value,
             onDestinationSelected: _mainController.setIndex,
             destinations: [
-              for (final type in _mainController.navigationBars)
+              for (var index = 0; index < navigationBars.length; index++) ...[
+                if (index == historyIndex) history,
                 CarSideNavigationDestination(
-                  label: type.label,
-                  icon: _buildIcon(type: type),
-                  selectedIcon: _buildIcon(type: type, selected: true),
+                  navigationIndex: index,
+                  label: navigationBars[index].label,
+                  icon: _buildIcon(type: navigationBars[index]),
+                  selectedIcon: _buildIcon(
+                    type: navigationBars[index],
+                    selected: true,
+                  ),
                 ),
+              ],
+              if (historyIndex == navigationBars.length) history,
             ],
           ),
         );
@@ -573,23 +588,24 @@ class _MainAppState extends PopScopeState<MainApp>
         : icon;
   }
 
-  Widget userAndSearchVertical() {
+  Widget userAndSearchVertical({bool showHistory = true}) {
     return Column(
       children: [
         userAvatar(colorScheme: _colorScheme, mainController: _mainController),
         const SizedBox(height: 8),
         msgBadge(_mainController),
-        TextButton(
-          onPressed: () => Get.toNamed('/history'),
-          style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
-          child: const Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.history),
-              Text('播放历史', style: TextStyle(fontSize: 12)),
-            ],
+        if (showHistory)
+          TextButton(
+            onPressed: () => Get.toNamed('/history'),
+            style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+            child: const Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.history),
+                Text('播放历史', style: TextStyle(fontSize: 12)),
+              ],
+            ),
           ),
-        ),
         IconButton(
           tooltip: '搜索',
           icon: const Icon(
