@@ -50,17 +50,12 @@ jobs:
       - name: Verify car window and recovery contracts
         run: dart tool/car_contract_test.dart
 
-      - name: Install host libraries for widget tests
-        run: |
-          if ! pkg-config --exists gtk+-3.0 x11 xi; then
-            sudo apt-get update
-            sudo apt-get install -y pkg-config libgtk-3-dev libx11-dev libxi-dev
-          fi
-
       - name: Verify car viewport and touch layout
-        run: >-
-          flutter test --no-pub test/widgets/car_side_navigation_test.dart
-          test/widgets/car_viewport_test.dart
+        run: |
+          layout_project="$(mktemp -d "$RUNNER_TEMP/pili-layout.XXXXXX")"
+          dart tool/car_layout_test_project.dart "$layout_project"
+          cd "$layout_project"
+          flutter test test/widgets/car_side_navigation_test.dart test/widgets/car_viewport_test.dart
 
       - name: Build car arm64-v8a APK
         run: >-
