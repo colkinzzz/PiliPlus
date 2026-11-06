@@ -1,4 +1,7 @@
 import 'package:PiliPlus/common/widgets/car_side_navigation.dart';
+import 'package:PiliPlus/common/widgets/car_viewport.dart';
+import 'package:PiliPlus/common/widgets/main_layout.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -12,7 +15,7 @@ Widget fixture({
   double scale = 1,
   double topPadding = 40,
   double bottomPadding = 64,
-  double extraTop = 0,
+  double minimumTop = 0,
   double headerHeight = 144,
   List<int> order = const [0, 1, 2],
   VoidCallback? onHistory,
@@ -30,6 +33,52 @@ Widget fixture({
       bottom: bottomPadding / scale,
     ),
   );
+  final sideBar = ValueListenableBuilder<int>(
+    valueListenable: selected,
+    builder: (context, index, _) => CarSideNavigation(
+      extended: extended,
+      selectedIndex: index,
+      onDestinationSelected: (index) {
+        pressed.add(order[index]);
+        selected.value = index;
+      },
+      header: SizedBox(
+        height: headerHeight,
+        child: Column(
+          children: [
+            const SizedBox(height: 48),
+            IconButton(
+              key: const ValueKey('search'),
+              onPressed: onSearch ?? () {},
+              icon: const Icon(Icons.search),
+            ),
+          ],
+        ),
+      ),
+      destinations: [
+        for (var index = 0; index < order.length; index++) ...[
+          if (order[index] == 2)
+            CarSideNavigationDestination.action(
+              label: '播放历史',
+              icon: const Icon(Icons.history),
+              onPressed: onHistory ?? () {},
+            ),
+          CarSideNavigationDestination(
+            navigationIndex: index,
+            label: _labels[order[index]],
+            icon: const Icon(Icons.circle_outlined),
+            selectedIcon: const Icon(Icons.circle),
+          ),
+        ],
+        if (!order.contains(2))
+          CarSideNavigationDestination.action(
+            label: '播放历史',
+            icon: const Icon(Icons.history),
+            onPressed: onHistory ?? () {},
+          ),
+      ],
+    ),
+  );
   return MaterialApp(
     home: SizedBox.expand(
       child: FittedBox(
@@ -40,66 +89,14 @@ Widget fixture({
           height: size.height,
           child: MediaQuery(
             data: data,
-            child: SafeArea(
-              top: false,
-              child: Padding(
-                padding: EdgeInsets.only(top: extraTop / scale),
-                child: Material(
-                  child: Row(
-                    children: [
-                      ValueListenableBuilder<int>(
-                        valueListenable: selected,
-                        builder: (context, index, _) => CarSideNavigation(
-                          extended: extended,
-                          selectedIndex: index,
-                          onDestinationSelected: (index) {
-                            pressed.add(order[index]);
-                            selected.value = index;
-                          },
-                          header: SizedBox(
-                            height: headerHeight,
-                            child: Column(
-                              children: [
-                                const SizedBox(height: 48),
-                                IconButton(
-                                  key: const ValueKey('search'),
-                                  onPressed: onSearch ?? () {},
-                                  icon: const Icon(Icons.search),
-                                ),
-                              ],
-                            ),
-                          ),
-                          destinations: [
-                            for (
-                              var index = 0;
-                              index < order.length;
-                              index++
-                            ) ...[
-                              if (order[index] == 2)
-                                CarSideNavigationDestination.action(
-                                  label: '播放历史',
-                                  icon: const Icon(Icons.history),
-                                  onPressed: onHistory ?? () {},
-                                ),
-                              CarSideNavigationDestination(
-                                navigationIndex: index,
-                                label: _labels[order[index]],
-                                icon: const Icon(Icons.circle_outlined),
-                                selectedIcon: const Icon(Icons.circle),
-                              ),
-                            ],
-                            if (!order.contains(2))
-                              CarSideNavigationDestination.action(
-                                label: '播放历史',
-                                icon: const Icon(Icons.history),
-                                onPressed: onHistory ?? () {},
-                              ),
-                          ],
-                        ),
-                      ),
-                      const Expanded(child: SizedBox.expand()),
-                    ],
-                  ),
+            child: CarViewport(
+              minimumTop: minimumTop / scale,
+              minimumBottom: 0,
+              child: Material(
+                child: MainLayout(
+                  sideBar: sideBar,
+                  bottomNav: null,
+                  body: const SizedBox.expand(key: ValueKey('main-body')),
                 ),
               ),
             ),
@@ -157,7 +154,7 @@ void main() {
               pressed: pressed,
               extended: extended,
               scale: scale,
-              extraTop: 16,
+              minimumTop: 56,
             ),
           );
           await tester.pumpAndSettle();
@@ -258,48 +255,82 @@ void main() {
             const Size(1600, 1200),
           ]) {
             tester.view.physicalSize = window;
-            await tester.pumpWidget(
-              fixture(
-                window: window,
-                selected: selected,
-                pressed: pressed,
-                extended: extended,
-                scale: scale,
-                headerHeight: headerHeight,
-                topPadding: 56,
-                bottomPadding: 80,
-                extraTop: 16,
-              ),
-            );
-            await tester.pumpAndSettle();
-            final buttons = [
-              for (var index = 0; index < 4; index++)
-                tester.getRect(
-                  find.byKey(ValueKey('car-nav-destination-$index')),
+            for (final bottomPadding in [0.0, 80.0]) {
+              await tester.pumpWidget(
+                fixture(
+                  window: window,
+                  selected: selected,
+                  pressed: pressed,
+                  extended: extended,
+                  scale: scale,
+                  headerHeight: headerHeight,
+                  topPadding: 56,
+                  bottomPadding: bottomPadding,
+                  minimumTop: 72,
                 ),
-            ];
-            // Status/HVAC insets and explicit top safety space are excluded,
-            // while the avatar/search header is part of the centered viewport.
-            final expectedCenter = (56 + 16 + window.height - 80) / 2;
-            expect(
-              (buttons.first.top + buttons.last.bottom) / 2,
-              closeTo(expectedCenter, 0.01),
-              reason:
-                  'extended=$extended scale=$scale header=$headerHeight window=$window',
-            );
-            for (var index = 1; index < 4; index++) {
-              expect(
-                buttons[index].top,
-                greaterThan(buttons[index - 1].bottom),
               );
+              await tester.pumpAndSettle();
+              final buttons = [
+                for (var index = 0; index < 4; index++)
+                  tester.getRect(
+                    find.byKey(ValueKey('car-nav-destination-$index')),
+                  ),
+              ];
+              // Status/HVAC insets and explicit top safety space are excluded,
+              // while the avatar/search header is part of the centered viewport.
+              final expectedCenter = (72 + window.height - bottomPadding) / 2;
+              expect(
+                tester.getRect(find.byKey(const ValueKey('main-body'))).bottom,
+                closeTo(window.height - bottomPadding, 0.01),
+              );
+              expect(
+                (buttons.first.top + buttons.last.bottom) / 2,
+                closeTo(expectedCenter, 0.01),
+                reason:
+                    'extended=$extended scale=$scale header=$headerHeight window=$window',
+              );
+              for (var index = 1; index < 4; index++) {
+                expect(
+                  buttons[index].top,
+                  greaterThan(buttons[index - 1].bottom),
+                );
+              }
+              final search = tester.getRect(
+                find.byKey(const ValueKey('search')),
+              );
+              expect(search.bottom, lessThanOrEqualTo(buttons.first.top));
+              expect(tester.takeException(), isNull);
             }
-            final search = tester.getRect(find.byKey(const ValueKey('search')));
-            expect(search.bottom, lessThanOrEqualTo(buttons.first.top));
-            expect(tester.takeException(), isNull);
           }
         }
       }
     }
+  });
+
+  testWidgets('header and all buttons fit without excess scroll space', (
+    tester,
+  ) async {
+    final selected = ValueNotifier(0);
+    addTearDown(selected.dispose);
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1100, 650);
+    addTearDown(tester.view.reset);
+    final pressed = <int>[];
+    await tester.pumpWidget(
+      fixture(
+        window: const Size(1100, 650),
+        selected: selected,
+        pressed: pressed,
+        headerHeight: 176,
+      ),
+    );
+    await tester.pumpAndSettle();
+    final position = tester
+        .state<ScrollableState>(find.byType(Scrollable))
+        .position;
+    expect(position.maxScrollExtent, 0);
+    await tapDestination(tester, 3, pressed, expected: 2);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('history stays independent between dynamics and mine', (
@@ -323,6 +354,10 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('播放历史'), findsOneWidget);
+    expect(
+      tester.renderObject<RenderParagraph>(find.text('播放历史')).didExceedMaxLines,
+      isFalse,
+    );
     final historyButton = find.byKey(const ValueKey('car-nav-destination-2'));
     expect(
       find.descendant(of: historyButton, matching: find.text('播放历史')),

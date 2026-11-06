@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:material_ui/material_ui.dart';
 
 class CarSideNavigationDestination {
@@ -27,9 +29,9 @@ class CarSideNavigationDestination {
 ///
 /// The header and destinations share one explicitly unpadded scroll viewport;
 /// there is no separately flexed NavigationDrawer ListView retaining its own
-/// scroll/padding state after a host-window resize. Equal space above and below
-/// the destinations centers them in the entire safe viewport, including the
-/// header's space. Short windows can scroll without overlapping the header.
+/// scroll/padding state after a host-window resize. Center the buttons in the
+/// safe viewport as a group. If the header would overlap them, place them right
+/// after it and scroll only when the combined content doesn't fit.
 class CarSideNavigation extends StatelessWidget {
   const CarSideNavigation({
     super.key,
@@ -46,6 +48,9 @@ class CarSideNavigation extends StatelessWidget {
   final ValueChanged<int> onDestinationSelected;
   final bool extended;
 
+  static const double _tileVerticalPadding = 5;
+  double get _buttonHeight => extended ? 56 : 64;
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = ColorScheme.of(context);
@@ -54,27 +59,31 @@ class CarSideNavigation extends StatelessWidget {
       child: SafeArea(
         bottom: false,
         right: false,
-        child: LayoutBuilder(
-          builder: (context, constraints) => SingleChildScrollView(
-            primary: false,
-            padding: EdgeInsets.zero,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: constraints.maxHeight),
-              child: IntrinsicHeight(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(
-                      child: Align(
-                        alignment: Alignment.topCenter,
-                        child: Padding(
-                          padding: EdgeInsets.only(top: extended ? 25 : 0),
-                          child: header,
-                        ),
-                      ),
+        child: CustomScrollView(
+          primary: false,
+          slivers: [
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.only(top: extended ? 25 : 0),
+                child: header,
+              ),
+            ),
+            SliverLayoutBuilder(
+              builder: (context, constraints) {
+                final groupHeight =
+                    destinations.length *
+                    (_buttonHeight + 2 * _tileVerticalPadding);
+                final centeredTop =
+                    (constraints.viewportMainAxisExtent - groupHeight) / 2;
+                return SliverPadding(
+                  padding: EdgeInsets.only(
+                    top: math.max(
+                      0.0,
+                      centeredTop - constraints.precedingScrollExtent,
                     ),
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
+                  ),
+                  sliver: SliverToBoxAdapter(
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         for (
@@ -85,12 +94,11 @@ class CarSideNavigation extends StatelessWidget {
                           _destination(index, colorScheme),
                       ],
                     ),
-                    const Spacer(),
-                  ],
-                ),
-              ),
+                  ),
+                );
+              },
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -102,16 +110,19 @@ class CarSideNavigation extends StatelessWidget {
     final icon = selected ? destination.selectedIcon : destination.icon;
     final label = Text(
       destination.label,
-      maxLines: 1,
+      maxLines: extended ? 2 : 1,
       overflow: TextOverflow.ellipsis,
       style: extended ? null : const TextStyle(fontSize: 12),
     );
     return Padding(
-      padding: EdgeInsets.symmetric(vertical: 5, horizontal: extended ? 12 : 6),
+      padding: EdgeInsets.symmetric(
+        vertical: _tileVerticalPadding,
+        horizontal: extended ? 12 : 6,
+      ),
       child: Semantics(
         selected: selected,
         child: SizedBox(
-          height: extended ? 56 : 64,
+          height: _buttonHeight,
           child: TextButton(
             key: ValueKey('car-nav-destination-$index'),
             onPressed:
@@ -124,7 +135,7 @@ class CarSideNavigation extends StatelessWidget {
               backgroundColor: selected
                   ? colors.secondaryContainer
                   : Colors.transparent,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
+              padding: EdgeInsets.symmetric(horizontal: extended ? 8 : 6),
               shape: const RoundedRectangleBorder(
                 borderRadius: BorderRadius.all(Radius.circular(16)),
               ),
@@ -133,7 +144,7 @@ class CarSideNavigation extends StatelessWidget {
                 ? Row(
                     children: [
                       icon,
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 8),
                       Expanded(child: label),
                     ],
                   )

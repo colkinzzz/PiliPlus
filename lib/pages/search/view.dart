@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
 
 import 'package:PiliPlus/common/widgets/dialog/export_import.dart';
 import 'package:PiliPlus/common/widgets/disabled_icon.dart';
@@ -15,6 +16,7 @@ import 'package:PiliPlus/utils/em.dart' show Em;
 import 'package:PiliPlus/utils/extension/size_ext.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
+import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
@@ -132,6 +134,7 @@ class _SearchPageState extends State<SearchPage> {
   );
 
   Widget _buildSearchSuggest() {
+    final useCarTouchTargets = Platform.isAndroid && Pref.carMode;
     return Obx(() {
       final list = _searchController.searchSuggestList;
       return list.isNotEmpty &&
@@ -146,7 +149,15 @@ class _SearchPageState extends State<SearchPage> {
                         item.term!,
                         clearSuggest: false,
                       ),
-                      child: Padding(
+                      child: Container(
+                        alignment: useCarTouchTargets
+                            ? Alignment.centerLeft
+                            : null,
+                        constraints: useCarTouchTargets
+                            ? const BoxConstraints(
+                                minHeight: kMinInteractiveDimension,
+                              )
+                            : null,
                         padding: const .only(left: 20, top: 9, bottom: 9),
                         child: Text.rich(
                           TextSpan(

@@ -3,13 +3,18 @@ package com.example.piliplus
 import android.content.Context
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.graphics.Insets
 import android.hardware.display.DisplayManager
 import android.os.Build
 import android.os.Bundle
 import android.view.Display
+import android.view.View
 import android.view.WindowInsets
 import android.view.WindowManager.LayoutParams
+import androidx.annotation.RequiresApi
 import com.ryanheise.audioservice.AudioServiceActivity
+import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterView
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import kotlin.math.abs
@@ -17,8 +22,8 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * The vehicle launcher owns the Activity window. This channel only reports
- * its current bounds; it never requests a different window or orientation.
+ * The vehicle launcher owns the Activity window. This channel reports its
+ * bounds and manages insets inside it without requesting a new host layout.
  */
 class MainActivity : AudioServiceActivity() {
     companion object {
@@ -26,7 +31,17 @@ class MainActivity : AudioServiceActivity() {
         private const val FULL_SIZE_THRESHOLD = 0.90
         private const val SPLIT_SIZE_THRESHOLD = 0.86
         private const val MAX_FULL_SIZE_RATIO = 1.10
+        // AudioService can retain the Flutter engine across Activity recreation.
+        private var carViewportEnabled = false
     }
+
+    private val refreshInsetsOnLayout = View.OnLayoutChangeListener {
+        view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+        if (left != oldLeft || top != oldTop || right != oldRight || bottom != oldBottom) {
+            view.requestApplyInsets()
+        }
+    }
+    private var carViewportView: FlutterView? = null
 
     private data class PhysicalDisplay(
         val displayId: Int,
@@ -51,9 +66,73 @@ class MainActivity : AudioServiceActivity() {
         ).setMethodCallHandler { call, result ->
             when (call.method) {
                 "getWindowState" -> result.success(readWindowState())
+                "configureViewport" -> {
+                    carViewportEnabled = true
+                    configureCarViewport()
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         }
+    }
+
+    private fun configureCarViewport() {
+        // Flutter reads the typed IME inset from API 30. Older embedders need
+        // adjustResize to deliver the legacy keyboard inset.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        val flutterView = findViewById<FlutterView>(FlutterActivity.FLUTTER_VIEW_ID) ?: return
+        if (carViewportView === flutterView) return
+        carViewportView = flutterView
+
+        // The keyboard can cover this view without resizing or panning its
+        // native surface. Flutter lays out only the visible content above it.
+        val softInputState = window.attributes.softInputMode and
+            LayoutParams.SOFT_INPUT_MASK_ADJUST.inv()
+        window.setSoftInputMode(softInputState or LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
+        flutterView.setOnApplyWindowInsetsListener { view, insets ->
+            val normalized = runCatching { fitBottomBarInsetsToView(view, insets) }
+                .getOrDefault(insets)
+            view.onApplyWindowInsets(normalized)
+        }
+        flutterView.addOnLayoutChangeListener(refreshInsetsOnLayout)
+        flutterView.requestApplyInsets()
+    }
+
+    @RequiresApi(Build.VERSION_CODES.R)
+    private fun fitBottomBarInsetsToView(view: View, insets: WindowInsets): WindowInsets {
+        val navigation = WindowInsets.Type.navigationBars()
+        val barTypes = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            intArrayOf(navigation, WindowInsets.Type.systemOverlays())
+        } else {
+            intArrayOf(navigation)
+        }
+        if (view.width == 0 || view.height == 0 ||
+            barTypes.none { insets.getInsets(it).bottom > 0 }
+        ) return insets
+
+        // A host may already end its app pane above the display's dock while
+        // forwarding the display-wide bar height to Flutter. Cap only the
+        // bottom insets, using bounds in the same display space.
+        val current = windowManager.currentWindowMetrics.bounds
+        val maximum = windowManager.maximumWindowMetrics
+        val bounds = maximum.bounds
+        if (!bounds.contains(current)) return insets
+        val origin = IntArray(2).also(view::getLocationOnScreen)
+        val viewBottom = origin[1] + view.height
+        if (!current.contains(origin[0], origin[1], origin[0] + view.width, viewBottom)) {
+            return insets
+        }
+        var adjusted: WindowInsets.Builder? = null
+        for (type in barTypes) {
+            val reported = insets.getInsets(type)
+            val barHeight = maximum.windowInsets.getInsetsIgnoringVisibility(type).bottom
+            if (reported.bottom == 0 || barHeight <= 0 || barHeight >= bounds.height()) continue
+            val overlap = (viewBottom - (bounds.bottom - barHeight)).coerceAtLeast(0)
+            if (overlap >= reported.bottom) continue
+            val builder = adjusted ?: WindowInsets.Builder(insets).also { adjusted = it }
+            builder.setInsets(type, Insets.of(reported.left, reported.top, reported.right, overlap))
+        }
+        return adjusted?.build() ?: insets
     }
 
     /**
@@ -346,6 +425,14 @@ class MainActivity : AudioServiceActivity() {
             window.attributes.layoutInDisplayCutoutMode =
                 LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
+        if (carViewportEnabled) configureCarViewport()
+    }
+
+    override fun onDestroy() {
+        carViewportView?.removeOnLayoutChangeListener(refreshInsetsOnLayout)
+        carViewportView?.setOnApplyWindowInsetsListener(null)
+        carViewportView = null
+        super.onDestroy()
     }
 
     override fun onUserLeaveHint() {

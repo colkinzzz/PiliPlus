@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:PiliPlus/build_config.dart';
 import 'package:PiliPlus/common/constants.dart';
 import 'package:PiliPlus/common/widgets/back_detector.dart';
+import 'package:PiliPlus/common/widgets/car_viewport.dart';
 import 'package:PiliPlus/common/widgets/custom_toast.dart';
 import 'package:PiliPlus/common/widgets/route_aware_mixin.dart';
 import 'package:PiliPlus/common/widgets/scale_app.dart';
@@ -16,8 +17,9 @@ import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/services/logger.dart';
 import 'package:PiliPlus/services/service_locator.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
-import 'package:PiliPlus/utils/calc_window_position.dart';
+import 'package:PiliPlus/utils/car_window_service.dart';
 import 'package:PiliPlus/utils/date_utils.dart';
+import 'package:PiliPlus/utils/desktop/calc_window_position.dart';
 import 'package:PiliPlus/utils/device_utils.dart';
 import 'package:PiliPlus/utils/extension/core_palettes_ext.dart';
 import 'package:PiliPlus/utils/extension/theme_ext.dart';
@@ -44,10 +46,11 @@ import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:media_kit/media_kit.dart';
+import 'package:nativeapi/nativeapi.dart' as nativeapi show Size, Rectangle;
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:screen_brightness_platform_interface/screen_brightness_platform_interface.dart';
-import 'package:window_manager/window_manager.dart' hide calcWindowPosition;
+import 'package:window_manager/window_manager.dart';
 
 WebViewEnvironment? webViewEnvironment;
 
@@ -129,7 +132,7 @@ void main() async {
         ),
       );
     }
-  } else if (Platform.isMacOS) {
+  } else if (Platform.isMacOS || Platform.isLinux) {
     await setupServiceLocator();
   }
 
@@ -142,9 +145,13 @@ void main() async {
   FocusManager.instance.addEarlyKeyEventHandler(_onKeyEvent);
 
   // Keep transparent system bars edge-to-edge so the app theme can paint into
-  // the vehicle status-bar area. Car SafeArea below still protects controls.
+  // the vehicle status-bar area. CarViewport still protects controls.
   if (PlatformUtils.isMobile) {
-    SystemChrome.setEnabledSystemUIMode(.edgeToEdge);
+    final systemUi = SystemChrome.setEnabledSystemUIMode(.edgeToEdge);
+    if (Platform.isAndroid && Pref.carMode) {
+      await systemUi;
+      await CarWindowService.configureViewport();
+    }
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
         systemNavigationBarColor: Colors.transparent,
@@ -169,24 +176,6 @@ void main() async {
     } else {
       ScreenBrightnessPlatform.instance.setAutoReset(false);
     }
-  } else if (PlatformUtils.isDesktop) {
-    await windowManager.ensureInitialized();
-
-    final windowOptions = WindowOptions(
-      minimumSize: const Size(400, 720),
-      skipTaskbar: false,
-      titleBarStyle: Pref.showWindowTitleBar ? .normal : .hidden,
-      title: Constants.appName,
-    );
-    windowManager.waitUntilReadyToShow(windowOptions, () async {
-      final windowSize = Pref.windowSize;
-      await windowManager.setBounds(
-        await calcWindowPosition(windowSize) & windowSize,
-      );
-      if (Pref.isWindowMaximized) await windowManager.maximize();
-      await windowManager.show();
-      await windowManager.focus();
-    });
   }
 
   if (Pref.dynamicColor) {
@@ -214,6 +203,37 @@ void main() async {
     );
   } else {
     runApp(const MyApp());
+  }
+
+  if (PlatformUtils.isDesktop) {
+    final window = WindowManager.instance.getCurrent();
+    if (window != null) {
+      final showTitleBar = Pref.showWindowTitleBar;
+      // macOS 隐藏标题栏时改用 contentUnderTitleBar，保持窗口可拖动
+      final useContentUnderTitleBar = Platform.isMacOS && !showTitleBar;
+      final (nativeapi.Size minSize, nativeapi.Rectangle bounds) =
+          calcWindowBounds();
+      window
+        ..titleBarStyle = useContentUnderTitleBar || showTitleBar
+            ? .normal
+            : .hidden
+        ..isWindowControlButtonsVisible = true
+        ..bounds = bounds
+        ..minimumSize = minSize
+        ..isVisibleInTaskbar = true
+        ..title = Constants.appName;
+      if (useContentUnderTitleBar) window.setContentUnderTitleBar(true);
+      if (Pref.isWindowMaximized) window.maximize();
+      void show([_]) => window
+        ..focus()
+        ..show();
+      switch (WidgetsBinding.instance.schedulerPhase) {
+        case .idle || .postFrameCallbacks:
+          WidgetsBinding.instance.scheduleFrameCallback(show);
+        case .transientCallbacks || .midFrameMicrotasks || .persistentCallbacks:
+          WidgetsBinding.instance.addPostFrameCallback(show);
+      }
+    }
   }
 }
 
@@ -316,42 +336,35 @@ class MyApp extends StatelessWidget {
     final mediaQuery = MediaQuery.of(context);
     final textScaler = TextScaler.linear(Pref.defaultTextScale);
     final isCarMode = Platform.isAndroid && Pref.carMode;
+    // A gallery transition can freeze route padding, but the car viewport must
+    // keep using live system insets as the host window moves.
+    final routePadding = isCarMode ? null : tmpPadding;
     late MediaQueryData effectiveMediaQuery;
     if (uiScale != 1.0) {
       effectiveMediaQuery = mediaQuery.copyWith(
         textScaler: textScaler,
         size: mediaQuery.size / uiScale,
-        padding: tmpPadding ?? mediaQuery.padding / uiScale,
+        padding: routePadding ?? mediaQuery.padding / uiScale,
         viewInsets: mediaQuery.viewInsets / uiScale,
-        viewPadding: tmpPadding ?? mediaQuery.viewPadding / uiScale,
+        viewPadding: routePadding ?? mediaQuery.viewPadding / uiScale,
         devicePixelRatio: mediaQuery.devicePixelRatio * uiScale,
       );
     } else {
       effectiveMediaQuery = mediaQuery.copyWith(
         textScaler: textScaler,
-        padding: tmpPadding,
-        viewPadding: tmpPadding,
+        padding: routePadding,
+        viewPadding: routePadding,
       );
     }
-
-    child = MediaQuery(data: effectiveMediaQuery, child: child!);
 
     if (isCarMode) {
-      // Let the page background paint behind the transparent vehicle status
-      // bar. MainApp consumes viewPadding.top exactly once for interactive
-      // content, so do not zero it here and do not add a second top SafeArea.
-      child = ColoredBox(
-        color: Theme.of(context).scaffoldBackgroundColor,
-        child: SafeArea(
-          top: false,
-          minimum: EdgeInsets.only(bottom: Pref.carBottomSafePadding),
-          child: Padding(
-            padding: EdgeInsets.only(top: Pref.carTopSafePadding),
-            child: child,
-          ),
-        ),
+      child = CarViewport(
+        minimumTop: Pref.carTopSafePadding / uiScale,
+        minimumBottom: Pref.carBottomSafePadding / uiScale,
+        child: child!,
       );
     }
+    child = MediaQuery(data: effectiveMediaQuery, child: child!);
     if (PlatformUtils.isDesktop) {
       return BackDetector(onBack: _onBack, child: child);
     }
